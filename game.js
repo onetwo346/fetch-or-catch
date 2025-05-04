@@ -13,7 +13,13 @@ const sounds = {
   obstacle: new Audio(),
   levelUp: new Audio(),
   gameOver: new Audio(),
-  powerup: new Audio()
+  powerup: new Audio(),
+  background: new Audio(),
+  jump: new Audio(),
+  fall: new Audio(),
+  button: new Audio(),
+  bounce: new Audio(),
+  start: new Audio()
 };
 
 // Set sources and create fallback for sound errors
@@ -23,11 +29,20 @@ try {
   sounds.levelUp.src = "https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3";
   sounds.gameOver.src = "https://assets.mixkit.co/active_storage/sfx/173/173-preview.mp3";
   sounds.powerup.src = "https://assets.mixkit.co/active_storage/sfx/2024/2024-preview.mp3";
+  sounds.background.src = "https://assets.mixkit.co/active_storage/sfx/209/209-preview.mp3";
+  sounds.jump.src = "https://assets.mixkit.co/active_storage/sfx/240/240-preview.mp3";
+  sounds.fall.src = "https://assets.mixkit.co/active_storage/sfx/235/235-preview.mp3";
+  sounds.button.src = "https://assets.mixkit.co/active_storage/sfx/270/270-preview.mp3";
+  sounds.bounce.src = "https://assets.mixkit.co/active_storage/sfx/238/238-preview.mp3";
+  sounds.start.src = "https://assets.mixkit.co/active_storage/sfx/217/217-preview.mp3";
   
   // Adjust sound volume
   for (const sound in sounds) {
     sounds[sound].volume = 0.3;
   }
+  
+  // Set background music to loop
+  sounds.background.loop = true;
 } catch (e) {
   console.log("Error loading sounds:", e);
 }
@@ -35,7 +50,7 @@ try {
 // Safe sound play function
 function playSound(soundName) {
   try {
-    if (sounds[soundName]) {
+    if (sounds[soundName] && !gameState.isMuted) {
       sounds[soundName].currentTime = 0;
       const playPromise = sounds[soundName].play();
       if (playPromise !== undefined) {
@@ -62,7 +77,8 @@ let gameState = {
   fallingItems: [],
   obstacles: [],
   particles: [],
-  bonusItems: []
+  bonusItems: [],
+  isMuted: false
 };
 
 // Level configurations
@@ -390,11 +406,18 @@ function moveBasket(event) {
   
   if (event.key === "ArrowLeft" && basket.x > 0) {
     basket.x -= basket.speed;
+    if (Math.random() > 0.9) playSound("jump");
   } else if (
     event.key === "ArrowRight" &&
     basket.x + basket.width < canvas.width
   ) {
     basket.x += basket.speed;
+    if (Math.random() > 0.9) playSound("jump");
+  }
+  
+  // M key for mute toggle
+  if (event.key === "m" || event.key === "M") {
+    toggleMute();
   }
 }
 
@@ -479,6 +502,7 @@ function gameLoop() {
         // Try to play sound
         try {
           playSound("collect");
+          if (item.points >= 3) playSound("bounce"); // Extra sound for high-value items
         } catch (e) {
           console.log("Sound play error:", e);
         }
@@ -631,6 +655,9 @@ function gameOver() {
 function startGame() {
   console.log("Starting game!");
   
+  // Store current mute state
+  const wasMuted = gameState.isMuted;
+  
   // Reset game state
   gameState = {
     score: 0,
@@ -644,7 +671,8 @@ function startGame() {
     fallingItems: [],
     obstacles: [],
     particles: [],
-    bonusItems: []
+    bonusItems: [],
+    isMuted: wasMuted // Preserve mute state
   };
   
   // Reset basket
@@ -661,6 +689,15 @@ function startGame() {
   levelUpScreen.classList.remove("show");
   gameOverScreen.style.display = "none";
   gameOverScreen.classList.remove("show");
+  
+  // Play start sound and background music
+  playSound("start");
+  setTimeout(() => {
+    // Only play background music if not muted
+    if (!gameState.isMuted) {
+      playSound("background");
+    }
+  }, 500);
   
   // Create initial falling items
   gameState.fallingItems = [];
@@ -679,6 +716,8 @@ function startGame() {
       const currentLevel = levelConfig[Math.min(gameState.level - 1, levelConfig.length - 1)];
       if (gameState.obstacles.length < currentLevel.maxObstacles) {
         gameState.obstacles.push(createObstacle());
+        // Play sound when obstacle appears
+        if (Math.random() > 0.7) playSound("fall");
       }
     }
   }, levelConfig[0].obstacleFrequency);
@@ -687,6 +726,7 @@ function startGame() {
   powerupInterval = setInterval(() => {
     if (!gameState.isPaused && gameState.level >= 2 && gameState.bonusItems.length < 1 && Math.random() < 0.3) {
       gameState.bonusItems.push(createPowerup());
+      playSound("bounce");
     }
   }, 10000);
   
@@ -721,6 +761,18 @@ function restartGame() {
 function pauseGame() {
   gameState.isPaused = !gameState.isPaused;
   document.getElementById("pauseBtn").innerText = gameState.isPaused ? "Resume" : "Pause";
+  
+  // Play button sound
+  playSound("button");
+  
+  // Pause/resume background music only if not muted
+  if (!gameState.isMuted) {
+    if (gameState.isPaused) {
+      sounds.background.pause();
+    } else {
+      sounds.background.play();
+    }
+  }
 }
 
 // Quit the game
@@ -731,6 +783,10 @@ function quitGame() {
   if (animationFrame) {
     cancelAnimationFrame(animationFrame);
   }
+  
+  // Stop background music
+  sounds.background.pause();
+  playSound("button");
   
   gameState.fallingItems = [];
   gameState.obstacles = [];
@@ -749,13 +805,51 @@ function quitGame() {
   document.getElementById("progressBar").style.width = "0%";
 }
 
+// Toggle mute function
+function toggleMute() {
+  gameState.isMuted = !gameState.isMuted;
+  
+  // Update button text
+  document.getElementById("muteBtn").innerText = gameState.isMuted ? "🔇" : "🔊";
+  
+  // Handle background music
+  if (gameState.isMuted) {
+    if (sounds.background.paused === false) {
+      sounds.background.pause();
+    }
+  } else {
+    // Only resume background music if game is not paused
+    if (!gameState.isPaused && canvas.style.display !== "none") {
+      sounds.background.play();
+    }
+  }
+  
+  // Play button sound (this will only play if unmuting)
+  playSound("button");
+}
+
 // Event Listeners
-document.getElementById("startGameBtn").addEventListener("click", startGame);
-document.getElementById("restartBtn").addEventListener("click", restartGame);
+document.getElementById("startGameBtn").addEventListener("click", function() {
+  playSound("button");
+  startGame();
+});
+document.getElementById("restartBtn").addEventListener("click", function() {
+  playSound("button");
+  restartGame();
+});
+// Sound effect handled inside pauseGame function
 document.getElementById("pauseBtn").addEventListener("click", pauseGame);
+// Sound effect handled inside quitGame function
 document.getElementById("quitBtn").addEventListener("click", quitGame);
-document.getElementById("nextLevelBtn").addEventListener("click", continueToNextLevel);
-document.getElementById("playAgainBtn").addEventListener("click", restartGame);
+document.getElementById("nextLevelBtn").addEventListener("click", function() {
+  playSound("button");
+  continueToNextLevel();
+});
+document.getElementById("playAgainBtn").addEventListener("click", function() {
+  playSound("button");
+  restartGame();
+});
+document.getElementById("muteBtn").addEventListener("click", toggleMute);
 
 window.addEventListener("keydown", moveBasket);
 canvas.addEventListener("touchmove", touchMoveBasket);
@@ -805,6 +899,7 @@ window.addEventListener('load', function() {
   document.getElementById("level").innerText = "Level: 1";
   document.getElementById("lives").innerText = "Lives: 3";
   document.getElementById("progressBar").style.width = "0%";
+  document.getElementById("muteBtn").innerText = gameState.isMuted ? "🔇" : "🔊";
   
   // Preload sounds to avoid startup issues
   try {
