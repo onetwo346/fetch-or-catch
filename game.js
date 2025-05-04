@@ -833,23 +833,55 @@ document.getElementById("startGameBtn").addEventListener("click", function() {
   playSound("button");
   startGame();
 });
+document.getElementById("startGameBtn").addEventListener("touchstart", function(e) {
+  e.preventDefault();
+  playSound("button");
+  startGame();
+});
 document.getElementById("restartBtn").addEventListener("click", function() {
+  playSound("button");
+  restartGame();
+});
+document.getElementById("restartBtn").addEventListener("touchstart", function(e) {
+  e.preventDefault();
   playSound("button");
   restartGame();
 });
 // Sound effect handled inside pauseGame function
 document.getElementById("pauseBtn").addEventListener("click", pauseGame);
+document.getElementById("pauseBtn").addEventListener("touchstart", function(e) {
+  e.preventDefault();
+  pauseGame();
+});
 // Sound effect handled inside quitGame function
 document.getElementById("quitBtn").addEventListener("click", quitGame);
-document.getElementById("nextLevelBtn").addEventListener("click", function() {
-  playSound("button");
-  continueToNextLevel();
+document.getElementById("quitBtn").addEventListener("touchstart", function(e) {
+  e.preventDefault();
+  quitGame();
 });
 document.getElementById("playAgainBtn").addEventListener("click", function() {
   playSound("button");
   restartGame();
 });
+document.getElementById("playAgainBtn").addEventListener("touchstart", function(e) {
+  e.preventDefault();
+  playSound("button");
+  restartGame();
+});
 document.getElementById("muteBtn").addEventListener("click", toggleMute);
+document.getElementById("muteBtn").addEventListener("touchstart", function(e) {
+  e.preventDefault();
+  toggleMute();
+});
+document.getElementById("nextLevelBtn").addEventListener("click", function() {
+  playSound("button");
+  continueToNextLevel();
+});
+document.getElementById("nextLevelBtn").addEventListener("touchstart", function(e) {
+  e.preventDefault();
+  playSound("button");
+  continueToNextLevel();
+});
 
 window.addEventListener("keydown", moveBasket);
 canvas.addEventListener("touchmove", touchMoveBasket);
@@ -925,35 +957,91 @@ function setupMobileControls() {
   const mobileControls = document.createElement("div");
   mobileControls.id = "mobileControls";
   
+  // Variables to store interval IDs
+  let moveLeftInterval = null;
+  let moveRightInterval = null;
+  
   const leftBtn = document.createElement("div");
   leftBtn.className = "controlBtn";
   leftBtn.innerHTML = "←";
-  leftBtn.addEventListener("touchstart", () => {
-    const moveLeftInterval = setInterval(() => {
+  
+  leftBtn.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Clear any existing intervals first
+    if (moveLeftInterval) clearInterval(moveLeftInterval);
+    if (moveRightInterval) clearInterval(moveRightInterval);
+    
+    moveLeftInterval = setInterval(() => {
       if (basket.x > 0) basket.x -= basket.speed/2;
     }, 16);
-    
-    leftBtn.addEventListener("touchend", () => {
+  });
+  
+  leftBtn.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (moveLeftInterval) {
       clearInterval(moveLeftInterval);
-    });
+      moveLeftInterval = null;
+    }
+  });
+  
+  leftBtn.addEventListener("touchcancel", (e) => {
+    if (moveLeftInterval) {
+      clearInterval(moveLeftInterval);
+      moveLeftInterval = null;
+    }
   });
   
   const rightBtn = document.createElement("div");
   rightBtn.className = "controlBtn";
   rightBtn.innerHTML = "→";
-  rightBtn.addEventListener("touchstart", () => {
-    const moveRightInterval = setInterval(() => {
+  
+  rightBtn.addEventListener("touchstart", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Clear any existing intervals first
+    if (moveRightInterval) clearInterval(moveRightInterval);
+    if (moveLeftInterval) clearInterval(moveLeftInterval);
+    
+    moveRightInterval = setInterval(() => {
       if (basket.x + basket.width < canvas.width) basket.x += basket.speed/2;
     }, 16);
-    
-    rightBtn.addEventListener("touchend", () => {
+  });
+  
+  rightBtn.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (moveRightInterval) {
       clearInterval(moveRightInterval);
-    });
+      moveRightInterval = null;
+    }
+  });
+  
+  rightBtn.addEventListener("touchcancel", (e) => {
+    if (moveRightInterval) {
+      clearInterval(moveRightInterval);
+      moveRightInterval = null;
+    }
   });
   
   mobileControls.appendChild(leftBtn);
   mobileControls.appendChild(rightBtn);
   document.body.appendChild(mobileControls);
+  
+  // Add global touch handler to ensure all intervals are cleared if touch ends outside buttons
+  document.addEventListener("touchend", () => {
+    if (moveLeftInterval) {
+      clearInterval(moveLeftInterval);
+      moveLeftInterval = null;
+    }
+    if (moveRightInterval) {
+      clearInterval(moveRightInterval);
+      moveRightInterval = null;
+    }
+  });
 }
 
 // Create a falling item with enhanced 3D properties

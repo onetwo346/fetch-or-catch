@@ -95,6 +95,14 @@ canvas {
   font-weight: bold;
   transform: translateZ(5px);
   position: relative;
+  /* Improve touch interaction for mobile */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
 }
 
 .button:hover {
@@ -106,6 +114,16 @@ canvas {
 .button:active {
   transform: translateY(1px) translateZ(5px);
   box-shadow: 0 5px 10px rgba(0, 0, 0, 0.2);
+  background: linear-gradient(to bottom, #1a5276, #154360);
+}
+
+/* Touch-specific active state */
+@media (hover: none) {
+  .button:hover {
+    transform: translateZ(5px);
+    background: linear-gradient(to bottom, #3498db, #2980b9);
+    box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+  }
 }
 
 .button::after {
