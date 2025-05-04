@@ -3410,7 +3410,7 @@ window.addEventListener('load', function() {
   document.getElementById("muteBtn").innerText = gameState.isMuted ? "🔇" : "🔊";
   
   // Apply consistent styling to game UI elements
-  const uiElements = document.querySelectorAll('#gameInterface > div:not(#speedControls)');
+  const uiElements = document.querySelectorAll('#gameInterface > div:not(#progressContainer)');
   uiElements.forEach(element => {
     element.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
     element.style.color = "white";
@@ -3465,33 +3465,6 @@ window.addEventListener('load', function() {
     });
   });
   
-  // Style intro screen
-  const introButtons = document.querySelectorAll('#intro button');
-  introButtons.forEach(button => {
-    button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    button.style.color = "white";
-    button.style.border = "2px solid rgba(41, 128, 185, 0.9)";
-    button.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-    button.style.padding = "12px 24px";
-    button.style.borderRadius = "8px";
-    button.style.margin = "10px";
-    button.style.cursor = "pointer";
-    button.style.fontFamily = "'Arial', sans-serif";
-    button.style.fontSize = "20px";
-    button.style.transition = "all 0.2s ease";
-    
-    // Add hover effect
-    button.addEventListener('mouseover', () => {
-      button.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
-      button.style.transform = "scale(1.05)";
-    });
-    
-    button.addEventListener('mouseout', () => {
-      button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-      button.style.transform = "scale(1)";
-    });
-  });
-  
   // Preload sounds to avoid startup issues
   try {
     for (const sound in sounds) {
@@ -3505,7 +3478,24 @@ window.addEventListener('load', function() {
   if ("ontouchstart" in window) {
     setupMobileControls();
     document.getElementById("mobileControls").style.display = "flex";
+    
+    // Show the appropriate instructions in the intro
+    if (document.getElementById("mobile-control-hint")) {
+      document.getElementById("mobile-control-hint").style.display = "inline-block";
+      document.getElementById("desktop-control-hint").style.display = "none";
+    }
+  } else {
+    // Show desktop instructions
+    if (document.getElementById("desktop-control-hint")) {
+      document.getElementById("desktop-control-hint").style.display = "inline-block";
+      document.getElementById("mobile-control-hint").style.display = "none";
+    }
   }
+  
+  // Add 3D lighting effect to intro
+  const lightingEffect = document.createElement("div");
+  lightingEffect.className = "lighting-effect";
+  document.getElementById("intro").appendChild(lightingEffect);
   
   // Ensure canvas is properly sized
   resizeCanvas();

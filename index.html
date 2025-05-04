@@ -3,16 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fetch or Catch Game</title>
+    <title>FETCH or CATCH!</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
     <div id="intro">
-      <h1>FETCH or CATCH!</h1>
-      <p>
-        Catch items, dodge obstacles! ← → keys to move. Get points, level up!
-      </p>
-      <button id="startGameBtn" class="button">Start Game</button>
+      <div class="title-3d">FETCH or CATCH!</div>
+      
+      <!-- Enhanced 3D elements -->
+      <div class="floating-magnet">🧲</div>
+      <div class="floating-star left">⭐</div>
+      <div class="floating-star right">⭐</div>
+      
+      <div class="spinner-container">
+        <div class="spinner">
+          <div class="spinner-item">🍎</div>
+          <div class="spinner-item">🍊</div>
+          <div class="spinner-item">🍌</div>
+          <div class="spinner-item">💎</div>
+          <div class="spinner-item">🧲</div>
+          <div class="spinner-item">💥</div>
+          <div class="spinner-item">❄️</div>
+          <div class="spinner-item">🔍</div>
+        </div>
+      </div>
+      
+      <div id="simple-instructions">
+        <p class="fun-text">Catch the GOOD stuff!</p>
+        <p class="fun-text">Avoid the BAD stuff!</p>
+        <p class="fun-text">Get AWESOME powers!</p>
+        <p class="control-hint" id="desktop-control-hint">Use ← → keys to move</p>
+        <p class="control-hint" id="mobile-control-hint">Tap ◀ ▶ to move</p>
+      </div>
+      
+      <button id="startGameBtn" class="button wobble">PLAY NOW!</button>
+      
+      <!-- 3D effects -->
+      <div class="floating-bomb">💣</div>
+      <div class="corner-decor top-left">🎮</div>
+      <div class="corner-decor top-right">🍦</div>
+      <div class="corner-decor bottom-left">🚀</div>
+      <div class="corner-decor bottom-right">🎯</div>
     </div>
 
     <div id="gameInterface">
@@ -20,7 +51,7 @@
       <div id="level">Level: 1</div>
       <div id="lives">Lives: 3</div>
       <div id="powerup" class="hidden">PowerUp: None</div>
-      <div id="levelProgress">
+      <div id="progressContainer">
         <div id="progressBar"></div>
       </div>
     </div>
