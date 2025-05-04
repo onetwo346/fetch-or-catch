@@ -1719,6 +1719,18 @@ function drawObstacles() {
     ctx.ellipse(0, shadowY, shadowSize/2, shadowSize/4, 0, 0, Math.PI * 2);
     ctx.fill();
     
+    // NEW: Add warning glow effect to all obstacles (pulsing red aura)
+    const glowPulse = Math.sin(Date.now() / 200) * 0.3 + 0.7; // Value between 0.4 and 1.0
+    const glowSize = obstacle.size * (1.2 + glowPulse * 0.3);
+    const glowGradient = ctx.createRadialGradient(0, 0, obstacle.size/2, 0, 0, glowSize);
+    glowGradient.addColorStop(0, `rgba(255, 0, 0, ${0.5 * glowPulse})`);
+    glowGradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+    
+    ctx.fillStyle = glowGradient;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowSize, 0, Math.PI * 2);
+    ctx.fill();
+    
     // Use emoji with advanced rendering if available
     if (obstacle.emoji) {
       // Apply floating animation
@@ -2937,6 +2949,40 @@ function levelUp() {
   levelUpScreen.style.display = "flex";
   levelUpScreen.classList.add("show");
   
+  // Apply consistent styling to level up screen
+  levelUpScreen.style.backgroundColor = "rgba(52, 152, 219, 0.9)";
+  levelUpScreen.style.border = "4px solid rgba(41, 128, 185, 1)";
+  levelUpScreen.style.borderRadius = "15px";
+  levelUpScreen.style.boxShadow = "0 8px 16px rgba(0, 0, 0, 0.4)";
+  levelUpScreen.style.color = "white";
+  levelUpScreen.style.fontFamily = "'Arial', sans-serif";
+  
+  // Style level up button
+  const nextLevelBtn = document.getElementById("nextLevelBtn");
+  if (nextLevelBtn) {
+    nextLevelBtn.style.backgroundColor = "rgba(46, 204, 113, 0.9)";
+    nextLevelBtn.style.color = "white";
+    nextLevelBtn.style.border = "2px solid rgba(39, 174, 96, 1)";
+    nextLevelBtn.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
+    nextLevelBtn.style.padding = "12px 24px";
+    nextLevelBtn.style.borderRadius = "8px";
+    nextLevelBtn.style.margin = "10px";
+    nextLevelBtn.style.cursor = "pointer";
+    nextLevelBtn.style.fontSize = "18px";
+    nextLevelBtn.style.transition = "all 0.2s ease";
+    
+    // Add hover effect
+    nextLevelBtn.addEventListener('mouseover', () => {
+      nextLevelBtn.style.backgroundColor = "rgba(39, 174, 96, 1)";
+      nextLevelBtn.style.transform = "scale(1.05)";
+    });
+    
+    nextLevelBtn.addEventListener('mouseout', () => {
+      nextLevelBtn.style.backgroundColor = "rgba(46, 204, 113, 0.9)";
+      nextLevelBtn.style.transform = "scale(1)";
+    });
+  }
+  
   // Reset progress bar
   document.getElementById("progressBar").style.width = "0%";
   
@@ -2966,6 +3012,40 @@ function gameOver() {
   document.getElementById("finalLevel").innerText = gameState.level;
   gameOverScreen.style.display = "flex";
   gameOverScreen.classList.add("show");
+  
+  // Apply consistent styling to game over screen
+  gameOverScreen.style.backgroundColor = "rgba(231, 76, 60, 0.9)";
+  gameOverScreen.style.border = "4px solid rgba(192, 57, 43, 1)";
+  gameOverScreen.style.borderRadius = "15px";
+  gameOverScreen.style.boxShadow = "0 8px 16px rgba(0, 0, 0, 0.4)";
+  gameOverScreen.style.color = "white";
+  gameOverScreen.style.fontFamily = "'Arial', sans-serif";
+  
+  // Style play again button
+  const playAgainBtn = document.getElementById("playAgainBtn");
+  if (playAgainBtn) {
+    playAgainBtn.style.backgroundColor = "rgba(52, 152, 219, 0.9)";
+    playAgainBtn.style.color = "white";
+    playAgainBtn.style.border = "2px solid rgba(41, 128, 185, 1)";
+    playAgainBtn.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
+    playAgainBtn.style.padding = "12px 24px";
+    playAgainBtn.style.borderRadius = "8px";
+    playAgainBtn.style.margin = "10px";
+    playAgainBtn.style.cursor = "pointer";
+    playAgainBtn.style.fontSize = "18px";
+    playAgainBtn.style.transition = "all 0.2s ease";
+    
+    // Add hover effect
+    playAgainBtn.addEventListener('mouseover', () => {
+      playAgainBtn.style.backgroundColor = "rgba(41, 128, 185, 1)";
+      playAgainBtn.style.transform = "scale(1.05)";
+    });
+    
+    playAgainBtn.addEventListener('mouseout', () => {
+      playAgainBtn.style.backgroundColor = "rgba(52, 152, 219, 0.9)";
+      playAgainBtn.style.transform = "scale(1)";
+    });
+  }
   
   // Clear intervals
   clearInterval(obstacleInterval);
@@ -3329,6 +3409,89 @@ window.addEventListener('load', function() {
   document.getElementById("progressBar").style.width = "0%";
   document.getElementById("muteBtn").innerText = gameState.isMuted ? "🔇" : "🔊";
   
+  // Apply consistent styling to game UI elements
+  const uiElements = document.querySelectorAll('#gameInterface > div:not(#speedControls)');
+  uiElements.forEach(element => {
+    element.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+    element.style.color = "white";
+    element.style.border = "2px solid rgba(41, 128, 185, 0.9)";
+    element.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
+    element.style.padding = "8px 12px";
+    element.style.borderRadius = "8px";
+    element.style.margin = "5px";
+    element.style.fontFamily = "'Arial', sans-serif";
+  });
+  
+  // Style progress container
+  const progressContainer = document.getElementById("progressContainer");
+  if (progressContainer) {
+    progressContainer.style.backgroundColor = "rgba(236, 240, 241, 0.6)";
+    progressContainer.style.border = "2px solid rgba(41, 128, 185, 0.9)";
+    progressContainer.style.borderRadius = "10px";
+    progressContainer.style.overflow = "hidden";
+  }
+  
+  // Style progress bar
+  const progressBar = document.getElementById("progressBar");
+  if (progressBar) {
+    progressBar.style.backgroundColor = "rgba(46, 204, 113, 0.8)";
+    progressBar.style.transition = "width 0.3s ease";
+  }
+  
+  // Style game controls
+  const controlButtons = document.querySelectorAll('#controls button');
+  controlButtons.forEach(button => {
+    button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+    button.style.color = "white";
+    button.style.border = "2px solid rgba(41, 128, 185, 0.9)";
+    button.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
+    button.style.padding = "8px 16px";
+    button.style.borderRadius = "8px";
+    button.style.margin = "0 5px";
+    button.style.cursor = "pointer";
+    button.style.fontFamily = "'Arial', sans-serif";
+    button.style.fontSize = "16px";
+    button.style.transition = "all 0.2s ease";
+    
+    // Add hover effect
+    button.addEventListener('mouseover', () => {
+      button.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
+      button.style.transform = "translateY(-2px)";
+    });
+    
+    button.addEventListener('mouseout', () => {
+      button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+      button.style.transform = "translateY(0)";
+    });
+  });
+  
+  // Style intro screen
+  const introButtons = document.querySelectorAll('#intro button');
+  introButtons.forEach(button => {
+    button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+    button.style.color = "white";
+    button.style.border = "2px solid rgba(41, 128, 185, 0.9)";
+    button.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
+    button.style.padding = "12px 24px";
+    button.style.borderRadius = "8px";
+    button.style.margin = "10px";
+    button.style.cursor = "pointer";
+    button.style.fontFamily = "'Arial', sans-serif";
+    button.style.fontSize = "20px";
+    button.style.transition = "all 0.2s ease";
+    
+    // Add hover effect
+    button.addEventListener('mouseover', () => {
+      button.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
+      button.style.transform = "scale(1.05)";
+    });
+    
+    button.addEventListener('mouseout', () => {
+      button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+      button.style.transform = "scale(1)";
+    });
+  });
+  
   // Preload sounds to avoid startup issues
   try {
     for (const sound in sounds) {
@@ -3352,18 +3515,50 @@ window.addEventListener('load', function() {
 function setupMobileControls() {
   const mobileControls = document.createElement("div");
   mobileControls.id = "mobileControls";
+  mobileControls.style.position = "fixed";
+  mobileControls.style.bottom = "20px";
+  mobileControls.style.left = "0";
+  mobileControls.style.right = "0";
+  mobileControls.style.display = "flex";
+  mobileControls.style.justifyContent = "space-between";
+  mobileControls.style.padding = "0 20px";
+  mobileControls.style.zIndex = "1000";
   
   // Variables to store interval IDs
   let moveLeftInterval = null;
   let moveRightInterval = null;
   
+  // Standardize button styling
+  const buttonStyle = {
+    width: "80px",
+    height: "80px",
+    borderRadius: "50%",
+    backgroundColor: "rgba(52, 152, 219, 0.8)",
+    color: "white",
+    fontSize: "40px",
+    border: "4px solid rgba(41, 128, 185, 0.9)",
+    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    userSelect: "none",
+    touchAction: "manipulation"
+  };
+  
   const leftBtn = document.createElement("div");
   leftBtn.className = "controlBtn";
   leftBtn.innerHTML = "←";
   
+  // Apply standardized styling to left button
+  Object.assign(leftBtn.style, buttonStyle);
+  
   leftBtn.addEventListener("touchstart", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Visual feedback on press
+    leftBtn.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
+    leftBtn.style.transform = "scale(0.95)";
     
     // Clear any existing intervals first
     if (moveLeftInterval) clearInterval(moveLeftInterval);
@@ -3377,6 +3572,11 @@ function setupMobileControls() {
   leftBtn.addEventListener("touchend", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Reset visual state
+    leftBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+    leftBtn.style.transform = "scale(1)";
+    
     if (moveLeftInterval) {
       clearInterval(moveLeftInterval);
       moveLeftInterval = null;
@@ -3385,6 +3585,11 @@ function setupMobileControls() {
   
   leftBtn.addEventListener("touchcancel", (e) => {
     e.preventDefault();
+    
+    // Reset visual state
+    leftBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+    leftBtn.style.transform = "scale(1)";
+    
     if (moveLeftInterval) {
       clearInterval(moveLeftInterval);
       moveLeftInterval = null;
@@ -3395,9 +3600,16 @@ function setupMobileControls() {
   rightBtn.className = "controlBtn";
   rightBtn.innerHTML = "→";
   
+  // Apply standardized styling to right button
+  Object.assign(rightBtn.style, buttonStyle);
+  
   rightBtn.addEventListener("touchstart", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Visual feedback on press
+    rightBtn.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
+    rightBtn.style.transform = "scale(0.95)";
     
     // Clear any existing intervals first
     if (moveRightInterval) clearInterval(moveRightInterval);
@@ -3411,6 +3623,11 @@ function setupMobileControls() {
   rightBtn.addEventListener("touchend", (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Reset visual state
+    rightBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+    rightBtn.style.transform = "scale(1)";
+    
     if (moveRightInterval) {
       clearInterval(moveRightInterval);
       moveRightInterval = null;
@@ -3419,6 +3636,11 @@ function setupMobileControls() {
   
   rightBtn.addEventListener("touchcancel", (e) => {
     e.preventDefault();
+    
+    // Reset visual state
+    rightBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
+    rightBtn.style.transform = "scale(1)";
+    
     if (moveRightInterval) {
       clearInterval(moveRightInterval);
       moveRightInterval = null;
@@ -3431,7 +3653,6 @@ function setupMobileControls() {
   
   // Add global touch handler to ensure all intervals are cleared if touch ends outside buttons
   document.addEventListener("touchend", (e) => {
-    e.preventDefault();
     if (moveLeftInterval) {
       clearInterval(moveLeftInterval);
       moveLeftInterval = null;
@@ -3440,7 +3661,7 @@ function setupMobileControls() {
       clearInterval(moveRightInterval);
       moveRightInterval = null;
     }
-  }, { passive: false });
+  }, { passive: true });
 }
 
 // Add a test function that can be called from the console
