@@ -56,7 +56,7 @@ canvas {
 }
 
 #score { top: 10px; left: 10px; }
-#level { top: 10px; right: 10px; }
+#level { top: 60px; right: 10px; }
 #lives { top: 50px; left: 10px; }
 #powerup { top: 50px; right: 10px; }
 
@@ -255,36 +255,56 @@ p {
 
 /* Responsive design */
 @media (max-width: 500px) {
+  body {
+    padding: 10px;
+  }
+  
+  canvas {
+    max-width: 100%;
+    height: auto;
+  }
+  
   #intro, #gameOver, #levelUp {
-    width: 90%;
-    padding: 20px;
+    max-width: 90%;
+    padding: 15px;
   }
   
   .button {
-    padding: 10px 20px;
+    padding: 8px 16px;
     font-size: 16px;
   }
   
   h1 {
-    font-size: 26px;
+    font-size: 24px;
   }
   
   h2 {
-    font-size: 22px;
+    font-size: 20px;
   }
   
   #score, #level, #lives, #powerup {
     font-size: 16px;
-    padding: 4px 10px;
+    padding: 3px 10px;
   }
   
   #score { top: 5px; left: 5px; }
-  #level { top: 5px; right: 5px; }
+  #level { top: 45px; right: 5px; } /* Positioned below speed controls in mobile view */
   #lives { top: 35px; left: 5px; }
   #powerup { top: 35px; right: 5px; }
   
   #levelProgress {
     top: 65px;
+  }
+
+  #mobileControls {
+    bottom: 20px; /* Adjust mobile control positioning */
+    padding: 0 10px;
+  }
+
+  .controlBtn {
+    width: 50px;
+    height: 50px;
+    font-size: 20px;
   }
 }
 
@@ -350,4 +370,47 @@ p {
     rgba(255, 255, 255, 0) 70%
   );
   pointer-events: none;
+}
+
+/* Prevent text selection and improve touch feedback */
+body, canvas, button {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Improve button and touch interactions */
+.button, .controlBtn {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Ensure proper scaling on mobile */
+@viewport {
+  width: device-width;
+  zoom: 1;
+}
+
+/* Prevent overscroll/bounce effect on iOS */
+html, body {
+  position: fixed;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.powerup-emoji {
+  font-size: 125%;
+  margin-left: 5px;
+  vertical-align: middle;
+  display: inline-block;
+  animation: pulsate 1.5s infinite alternate;
+}
+
+@keyframes pulsate {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.2); }
 } 
