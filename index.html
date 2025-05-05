@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>FETCH or CATCH!</title>
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -10,10 +13,31 @@
     <div id="intro">
       <div class="title-3d">FETCH or CATCH!</div>
       
-      <!-- Enhanced 3D elements -->
-      <div class="floating-magnet">🧲</div>
+      <!-- Enhanced floating elements -->
       <div class="floating-star left">⭐</div>
+      <div class="floating-magnet">🧲</div>
       <div class="floating-star right">⭐</div>
+      <div class="floating-apple top-right">🍎</div>
+      <div class="floating-gem bottom-left">💎</div>
+      <div class="floating-snowflake top-left">❄️</div>
+      
+      <!-- 3D corner decorations -->
+      <div class="corner-decoration top-left-corner">
+        <div class="corner-line"></div>
+        <div class="corner-dot"></div>
+      </div>
+      <div class="corner-decoration top-right-corner">
+        <div class="corner-line"></div>
+        <div class="corner-dot"></div>
+      </div>
+      <div class="corner-decoration bottom-left-corner">
+        <div class="corner-line"></div>
+        <div class="corner-dot"></div>
+      </div>
+      <div class="corner-decoration bottom-right-corner">
+        <div class="corner-line"></div>
+        <div class="corner-dot"></div>
+      </div>
       
       <div class="spinner-container">
         <div class="spinner">
@@ -29,21 +53,42 @@
       </div>
       
       <div id="simple-instructions">
+        <p class="fun-text">Move your basket to catch yummy fruits and shiny treasures!</p>
+        <p class="fun-text">Watch out for bombs and obstacles that will cost you lives!</p>
+        <p class="fun-text">Collect special power-ups for awesome abilities!</p>
         <p class="fun-text">Catch the GOOD stuff!</p>
         <p class="fun-text">Avoid the BAD stuff!</p>
-        <p class="fun-text">Get AWESOME powers!</p>
         <p class="control-hint" id="desktop-control-hint">Use ← → keys to move</p>
         <p class="control-hint" id="mobile-control-hint">Tap ◀ ▶ to move</p>
       </div>
       
-      <button id="startGameBtn" class="button wobble">PLAY NOW!</button>
+      <button id="optionsBtn" class="button wobble">ENTER GAME</button>
+    </div>
+
+    <!-- Enhanced Options Screen -->
+    <div id="optionsScreen">
+      <div class="title-3d options-title">GAME OPTIONS</div>
       
-      <!-- 3D effects -->
-      <div class="floating-bomb">💣</div>
-      <div class="corner-decor top-left">🎮</div>
-      <div class="corner-decor top-right">🍦</div>
-      <div class="corner-decor bottom-left">🚀</div>
-      <div class="corner-decor bottom-right">🎯</div>
+      <div class="options-container">
+        <div class="option-section" id="backgroundSection">
+          <h3>Choose Background Theme</h3>
+          <div class="option-choices">
+            <!-- Theme options will be dynamically populated -->
+          </div>
+        </div>
+        
+        <div class="option-section" id="basketSection">
+          <h3>Choose Basket Style</h3>
+          <div class="option-choices">
+            <!-- Basket options will be dynamically populated -->
+          </div>
+        </div>
+      </div>
+      
+      <div class="options-buttons">
+        <button id="startGameBtn" class="button wobble">START GAME!</button>
+        <button id="backToIntroBtn" class="button back-button">BACK</button>
+      </div>
     </div>
 
     <div id="gameInterface">
@@ -78,6 +123,40 @@
       <button id="playAgainBtn" class="button">Play Again</button>
     </div>
 
+    <script src="enhanced-camera-shake.js"></script>
+    <script src="options.js"></script>
     <script src="game.js"></script>
+    <script>
+      // 3D tilt effect for intro screen
+      document.addEventListener('DOMContentLoaded', function() {
+        const intro = document.getElementById('intro');
+        const title = document.querySelector('.title-3d');
+        
+        // Mouse move effect
+        intro.addEventListener('mousemove', function(e) {
+          const introRect = intro.getBoundingClientRect();
+          const introX = introRect.left + introRect.width / 2;
+          const introY = introRect.top + introRect.height / 2;
+          
+          // Calculate mouse position relative to center of intro
+          const mouseX = e.clientX - introX;
+          const mouseY = e.clientY - introY;
+          
+          // Calculate tilt angles (limit to 10 degrees)
+          const tiltX = (mouseY / introRect.height * 20).toFixed(2);
+          const tiltY = (mouseX / introRect.width * 20).toFixed(2);
+          
+          // Apply transformations
+          intro.style.transform = `translateZ(30px) rotateX(${-tiltX}deg) rotateY(${tiltY}deg)`;
+          title.style.transform = `translateY(0) rotateX(${-tiltX * 1.5}deg) rotateY(${tiltY * 1.5}deg) scale(1)`;
+        });
+        
+        // Reset on mouse leave
+        intro.addEventListener('mouseleave', function() {
+          intro.style.transform = 'translateZ(30px) rotateX(3deg) scale(1)';
+          title.style.transform = 'translateY(0) rotateX(10deg) scale(1)';
+        });
+      });
+    </script>
   </body>
 </html>
