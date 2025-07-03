@@ -6,6 +6,7 @@ const controls = document.getElementById("controls");
 const gameInterface = document.getElementById("gameInterface");
 const levelUpScreen = document.getElementById("levelUp");
 const gameOverScreen = document.getElementById("gameOver");
+const optionsScreen = document.getElementById("optionsScreen");
 
 // Add screen shake variables
 let screenShake = {
@@ -65,7 +66,7 @@ function playSound(soundName) {
         const playPromise = sounds[soundName].play();
         if (playPromise !== undefined) {
           playPromise.catch(error => {
-            console.log("Sound play error:", e);
+            console.log("Sound play error:", error);
           });
         }
       }
@@ -75,12 +76,12 @@ function playSound(soundName) {
   }
 }
 
-// Game state with performance tracking and speed control
+// Game state with enhanced performance tracking and smooth movement
 let gameState = {
   score: 0,
   level: 1,
   lives: 3,
-  targetScore: 100, // Score needed to complete level 1
+  targetScore: 100,
   isPaused: false,
   hasActivePowerup: false,
   activePowerupType: null,
@@ -93,10 +94,18 @@ let gameState = {
   timeSlowFactor: null,
   lastFrameTime: 0,
   frameRate: 60,
-  performanceMode: false, // Enable this automatically if frame rate drops
-  gameSpeed: 1.0, // Game speed multiplier - can be adjusted by player
-  baseItemSpeed: 1.5, // Base speed for falling items
-  lastUpdateTime: 0 // For frame rate independence
+  performanceMode: false,
+  gameSpeed: 1.0,
+  baseItemSpeed: 1.5,
+  lastUpdateTime: 0,
+  deltaTime: 0,
+  smoothing: 0.8, // Movement smoothing factor
+  devicePixelRatio: window.devicePixelRatio || 1,
+  useRAF: true, // Use requestAnimationFrame
+  fpsInterval: 1000 / 60, // Target 60 FPS
+  now: 0,
+  then: Date.now(),
+  elapsed: 0
 };
 
 // Level configurations
@@ -143,6 +152,12 @@ const levelConfig = [
   }
 ];
 
+// User customization options
+const customizations = {
+  basketStyle: localStorage.getItem('gameBasket') || 'classic',
+  theme: localStorage.getItem('gameTheme') || 'space'
+};
+
 // Basket properties with 3D effect
 const basket = { 
   x: 170, 
@@ -156,7 +171,8 @@ const basket = {
   secondaryColor: "#2980b9",
   tertiaryColor: "#1a5276",
   powerupActive: false,
-  damageFlash: false // Added damage flash effect
+  damageFlash: false, // Added damage flash effect
+  style: customizations.basketStyle || 'classic' // Add basket style property
 };
 
 // Expanded item types with more variety
@@ -328,16 +344,25 @@ function updateParticles(deltaTime) {
   // Normalize for 60fps
   const timeScale = deltaTime * 60;
   
+  // Pre-calculate offscreen boundaries for performance
+  const offscreenBoundary = 30; // Slightly larger than particle size
+  const minX = -offscreenBoundary;
+  const maxX = canvas.width + offscreenBoundary;
+  const minY = -offscreenBoundary;
+  const maxY = canvas.height + offscreenBoundary;
+  
   // Use a faster loop for better performance
   for (let i = gameState.particles.length - 1; i >= 0; i--) {
     const p = gameState.particles[i];
+    
+    // Apply frame-rate independent movement
     p.x += p.speedX * timeScale;
     p.y += p.speedY * timeScale;
     p.life -= timeScale;
     p.height *= Math.pow(0.95, timeScale); // Particle gradually falls to ground
     
-    // Optimize by removing particles that are off-screen
-    if (p.life <= 0 || p.x < -20 || p.x > canvas.width + 20 || p.y < -20 || p.y > canvas.height + 20) {
+    // Skip rendering particles with very low opacity for performance
+    if (p.life <= 0 || p.x < minX || p.x > maxX || p.y < minY || p.y > maxY) {
       gameState.particles.splice(i, 1);
       continue;
     }
@@ -345,18 +370,23 @@ function updateParticles(deltaTime) {
     // Use alpha based on life for fading effect
     const alpha = p.life / 50;
     
+    // Skip drawing very transparent particles (improves performance)
+    if (alpha < 0.05) continue;
+    
     if (p.text) {
       // Text particle (like emoji hearts)
       ctx.globalAlpha = alpha;
       ctx.font = `${p.size * 5}px Arial`;
       ctx.fillText(p.text, p.x, p.y);
     } else {
-      // Shadow
-      ctx.globalAlpha = alpha * 0.7;
-      ctx.fillStyle = "rgba(0,0,0,0.2)";
-      ctx.beginPath();
-      ctx.arc(p.x + 2, p.y + 2 + p.height, p.size, 0, Math.PI * 2);
-      ctx.fill();
+      // Only draw shadow if not in performance mode
+      if (!gameState.performanceMode) {
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
+        ctx.beginPath();
+        ctx.arc(p.x + 2, p.y + 2 + p.height, p.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
       
       // Particle
       ctx.globalAlpha = alpha;
@@ -368,9 +398,10 @@ function updateParticles(deltaTime) {
   }
   ctx.globalAlpha = 1;
   
-  // Limit max particles for performance
-  if (gameState.particles.length > 200) {
-    gameState.particles.splice(0, gameState.particles.length - 200);
+  // More aggressive particle limiting based on performance
+  const particleLimit = gameState.performanceMode ? 80 : 200;
+  if (gameState.particles.length > particleLimit) {
+    gameState.particles.splice(0, gameState.particles.length - particleLimit);
   }
 }
 
@@ -654,50 +685,61 @@ function drawBackground() {
   // Create a time-based animation value
   const time = Date.now() / 5000;
   
+  // Reduce cloud detail in performance mode
+  const cloudCount = gameState.performanceMode ? 3 : 5;
+  
   // Far distant clouds (slowest moving)
   ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < cloudCount; i++) {
     const x = ((i * 100 + time * 20) % (canvas.width + 100)) - 50;
     const y = 50 + i * 15;
     const width = 80 + i * 10;
     const height = 20 + i * 5;
     
-    // Draw cloud
+    // Draw cloud with simplified shape in performance mode
     ctx.beginPath();
     ctx.ellipse(x, y, width/2, height/2, 0, 0, Math.PI * 2);
     ctx.fill();
     
-    // Secondary cloud parts
-    ctx.beginPath();
-    ctx.ellipse(x + width/4, y - height/4, width/3, height/2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.beginPath();
-    ctx.ellipse(x - width/4, y - height/4, width/4, height/3, 0, 0, Math.PI * 2);
-    ctx.fill();
+    // Only draw detailed clouds if not in performance mode
+    if (!gameState.performanceMode) {
+      // Secondary cloud parts
+      ctx.beginPath();
+      ctx.ellipse(x + width/4, y - height/4, width/3, height/2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(x - width/4, y - height/4, width/4, height/3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   
-  // Mid-distance clouds (medium speed)
-  ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
-  for (let i = 0; i < 3; i++) {
-    const x = ((i * 150 + time * 40) % (canvas.width + 150)) - 75;
-    const y = 90 + i * 30;
-    const width = 100 + i * 20;
-    const height = 25 + i * 8;
-    
-    // Draw cloud
-    ctx.beginPath();
-    ctx.ellipse(x, y, width/2, height/2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Secondary cloud parts
-    ctx.beginPath();
-    ctx.ellipse(x + width/3, y - height/3, width/3, height/2, 0, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.beginPath();
-    ctx.ellipse(x - width/3, y - height/5, width/4, height/3, 0, 0, Math.PI * 2);
-    ctx.fill();
+  // Mid-distance clouds (medium speed) - skip in extreme performance mode
+  if (!gameState.performanceMode || gameState.frameRate > 40) {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+    const midCloudCount = gameState.performanceMode ? 2 : 3;
+    for (let i = 0; i < midCloudCount; i++) {
+      const x = ((i * 150 + time * 40) % (canvas.width + 150)) - 75;
+      const y = 90 + i * 30;
+      const width = 100 + i * 20;
+      const height = 25 + i * 8;
+      
+      // Draw cloud
+      ctx.beginPath();
+      ctx.ellipse(x, y, width/2, height/2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // Secondary cloud parts - only if not in performance mode
+      if (!gameState.performanceMode) {
+        ctx.beginPath();
+        ctx.ellipse(x + width/3, y - height/3, width/3, height/2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.ellipse(x - width/3, y - height/5, width/4, height/3, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   }
   
   // Ground with perspective effect
@@ -714,352 +756,447 @@ function drawBackground() {
   ctx.closePath();
   ctx.fill();
   
-  // Ground grid pattern for perspective
+  // Ground grid pattern for perspective - adjust detail based on performance
   ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
   ctx.lineWidth = 1;
   
-  // Horizontal grid lines
-  for (let i = 0; i < 10; i++) {
-    const y = canvas.height - 30 + (i * 3);
+  // Horizontal grid lines - reduce in performance mode
+  const horizontalLines = gameState.performanceMode ? 5 : 10;
+  for (let i = 0; i < horizontalLines; i++) {
+    const y = canvas.height - 30 + (i * (30 / horizontalLines));
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(canvas.width, y);
     ctx.stroke();
   }
   
-  // Vertical grid lines with perspective
-  for (let i = 0; i < 20; i++) {
-    const x = i * (canvas.width / 20);
+  // Vertical grid lines with perspective - reduce in performance mode
+  const verticalLines = gameState.performanceMode ? 10 : 20;
+  for (let i = 0; i < verticalLines; i++) {
+    const x = i * (canvas.width / verticalLines);
     ctx.beginPath();
     ctx.moveTo(x, canvas.height - 30);
     ctx.lineTo(canvas.width/2 + (x - canvas.width/2) * 0.8, canvas.height);
     ctx.stroke();
   }
   
-  // Add subtle ambient lighting effect
-  const lightRadius = Math.max(canvas.width, canvas.height) * 0.8;
-  const lightGradient = ctx.createRadialGradient(
-    canvas.width/2, canvas.height/2, 10,
-    canvas.width/2, canvas.height/2, lightRadius
-  );
-  lightGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-  lightGradient.addColorStop(1, 'rgba(0, 100, 255, 0.1)');
-  
-  ctx.fillStyle = lightGradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Skip ambient lighting in performance mode
+  if (!gameState.performanceMode) {
+    // Add subtle ambient lighting effect
+    const lightRadius = Math.max(canvas.width, canvas.height) * 0.8;
+    const lightGradient = ctx.createRadialGradient(
+      canvas.width/2, canvas.height/2, 10,
+      canvas.width/2, canvas.height/2, lightRadius
+    );
+    lightGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    lightGradient.addColorStop(1, 'rgba(0, 100, 255, 0.1)');
+    
+    ctx.fillStyle = lightGradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
 }
 
-// Draw basket with enhanced 3D effect
+// Modified drawBasket function to handle different basket styles
 function drawBasket() {
-  const shadowOffset = 5;
-  const basketDepth = 15;
-  const glowIntensity = gameState.hasActivePowerup ? 15 : 0;
+  ctx.save();
+  ctx.translate(basket.x + basket.width / 2, basket.y + basket.height / 2);
+  ctx.rotate(basket.rotation);
   
-  // First draw the shadow basket if doubleTrouble is active
-  if (gameState.hasActivePowerup && gameState.activePowerupType === "doubleTrouble" && gameState.shadowBasket) {
-    const shadowBasket = gameState.shadowBasket;
-    
-    // Update shadow basket position to follow main basket with offset
-    const targetOffsetX = -60; // Target offset from main basket
-    const targetOffsetY = -40;
-    
-    // Smooth movement for shadow basket (easing)
-    shadowBasket.offsetX += (targetOffsetX - shadowBasket.offsetX) * 0.1;
-    shadowBasket.offsetY += (targetOffsetY - shadowBasket.offsetY) * 0.1;
-    
-    // Draw the shadow basket
-    // Shadow
-    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-    ctx.beginPath();
-    ctx.moveTo(basket.x + shadowBasket.offsetX + shadowOffset, basket.y + shadowBasket.offsetY + shadowOffset);
-    ctx.lineTo(basket.x + shadowBasket.width + shadowBasket.offsetX + shadowOffset, basket.y + shadowBasket.offsetY + shadowOffset);
-    ctx.lineTo(basket.x + shadowBasket.width + shadowBasket.offsetX + shadowOffset, basket.y + shadowBasket.height + shadowBasket.offsetY + shadowOffset);
-    ctx.lineTo(basket.x + shadowBasket.offsetX + shadowOffset, basket.y + shadowBasket.height + shadowBasket.offsetY + shadowOffset);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Right side - darker
-    ctx.fillStyle = shadowBasket.tertiaryColor;
-    ctx.beginPath();
-    ctx.moveTo(basket.x + shadowBasket.width + shadowBasket.offsetX, basket.y + shadowBasket.offsetY);
-    ctx.lineTo(basket.x + shadowBasket.width + basketDepth + shadowBasket.offsetX, basket.y + basketDepth + shadowBasket.offsetY);
-    ctx.lineTo(basket.x + shadowBasket.width + basketDepth + shadowBasket.offsetX, basket.y + shadowBasket.height + basketDepth + shadowBasket.offsetY);
-    ctx.lineTo(basket.x + shadowBasket.width + shadowBasket.offsetX, basket.y + shadowBasket.height + shadowBasket.offsetY);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Bottom side
-    ctx.fillStyle = darkenColor(shadowBasket.color, 30);
-    ctx.beginPath();
-    ctx.moveTo(basket.x + shadowBasket.offsetX, basket.y + shadowBasket.height + shadowBasket.offsetY);
-    ctx.lineTo(basket.x + basketDepth + shadowBasket.offsetX, basket.y + shadowBasket.height + basketDepth + shadowBasket.offsetY);
-    ctx.lineTo(basket.x + shadowBasket.width + basketDepth + shadowBasket.offsetX, basket.y + shadowBasket.height + basketDepth + shadowBasket.offsetY);
-    ctx.lineTo(basket.x + shadowBasket.width + shadowBasket.offsetX, basket.y + shadowBasket.height + shadowBasket.offsetY);
-    ctx.closePath();
-    ctx.fill();
-    
-    // Main basket face with metallic gradient
-    const basketGradient = ctx.createLinearGradient(
-      basket.x + shadowBasket.offsetX, basket.y + shadowBasket.offsetY, 
-      basket.x + shadowBasket.width + shadowBasket.offsetX, basket.y + shadowBasket.height + shadowBasket.offsetY
-    );
-    
-    basketGradient.addColorStop(0, lightenColor(shadowBasket.color, 20));
-    basketGradient.addColorStop(0.5, shadowBasket.color);
-    basketGradient.addColorStop(1, darkenColor(shadowBasket.color, 20));
-    
-    // Add glow effect
-    ctx.shadowColor = shadowBasket.color;
-    ctx.shadowBlur = glowIntensity;
-    
-    ctx.fillStyle = basketGradient;
-    ctx.fillRect(
-      basket.x + shadowBasket.offsetX, 
-      basket.y + shadowBasket.offsetY, 
-      shadowBasket.width, 
-      shadowBasket.height
-    );
-    
-    // Reset shadow
-    ctx.shadowBlur = 0;
-    
-    // Top rim - lighter
-    ctx.fillStyle = lightenColor(shadowBasket.color, 20);
-    ctx.fillRect(
-      basket.x + shadowBasket.offsetX, 
-      basket.y + shadowBasket.offsetY, 
-      shadowBasket.width, 10
-    );
-    
-    // Basket pattern
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-    ctx.lineWidth = 2;
-    
-    // Vertical lines with perspective
-    for (let i = 1; i < 4; i++) {
-      const x = basket.x + shadowBasket.offsetX + (shadowBasket.width / 4) * i;
-      ctx.beginPath();
-      ctx.moveTo(x, basket.y + shadowBasket.offsetY);
-      ctx.lineTo(x, basket.y + shadowBasket.height + shadowBasket.offsetY);
-      // Add perspective lines to rim
-      ctx.moveTo(x, basket.y + shadowBasket.offsetY);
-      ctx.lineTo(x + basketDepth/2, basket.y + basketDepth/2 + shadowBasket.offsetY);
-      ctx.stroke();
-    }
-    
-    // Horizontal line with perspective
-    const midY = basket.y + shadowBasket.height/2 + shadowBasket.offsetY;
-    ctx.beginPath();
-    ctx.moveTo(basket.x + shadowBasket.offsetX, midY);
-    ctx.lineTo(basket.x + shadowBasket.width + shadowBasket.offsetX, midY);
-    // Add perspective line to right side
-    ctx.moveTo(basket.x + shadowBasket.width + shadowBasket.offsetX, midY);
-    ctx.lineTo(basket.x + shadowBasket.width + basketDepth + shadowBasket.offsetX, midY + basketDepth);
-    ctx.stroke();
-    
-    // Add connection particles between main and shadow basket occasionally
-    if (Math.random() > 0.9) {
-      const mainX = basket.x + basket.width/2;
-      const mainY = basket.y + basket.height/2;
-      const shadowX = basket.x + shadowBasket.offsetX + shadowBasket.width/2;
-      const shadowY = basket.y + shadowBasket.offsetY + shadowBasket.height/2;
-      
-      // Calculate direction vector
-      const dx = shadowX - mainX;
-      const dy = shadowY - mainY;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      
-      // Normalized direction
-      const ndx = dx / dist;
-      const ndy = dy / dist;
-      
-      // Create particle at random position along the connection line
-      const t = Math.random();
-      const particleX = mainX + dx * t;
-      const particleY = mainY + dy * t;
-      
-      // Add particle
-      gameState.particles.push({
-        x: particleX,
-        y: particleY,
-        size: Math.random() * 3 + 1,
-        speedX: ndx * (Math.random() * 2),
-        speedY: ndy * (Math.random() * 2),
-        color: shadowBasket.color,
-        life: 20,
-        opacity: 0.7,
-        height: Math.random() * 3
-      });
-    }
-    
-    // Add pulse effect
-    const pulseFactor = Math.sin(Date.now() / 200) * 0.1 + 0.9;
-    const pulseSize = shadowBasket.width * 0.6 * pulseFactor;
-    
-    const pulseGradient = ctx.createRadialGradient(
-      basket.x + shadowBasket.offsetX + shadowBasket.width/2, 
-      basket.y + shadowBasket.offsetY + shadowBasket.height/2, 
-      0,
-      basket.x + shadowBasket.offsetX + shadowBasket.width/2, 
-      basket.y + shadowBasket.offsetY + shadowBasket.height/2, 
-      pulseSize
-    );
-    
-    pulseGradient.addColorStop(0, "rgba(255, 255, 255, 0.3)");
-    pulseGradient.addColorStop(0.7, shadowBasket.color + "40");
-    pulseGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-    
-    ctx.fillStyle = pulseGradient;
-    ctx.fillRect(
-      basket.x + shadowBasket.offsetX - pulseSize/2, 
-      basket.y + shadowBasket.offsetY - pulseSize/2, 
-      shadowBasket.width + pulseSize, 
-      shadowBasket.height + pulseSize
-    );
+  // Choose basket style based on user selection
+  switch(basket.style) {
+    case 'futuristic':
+      drawFuturisticBasket();
+      break;
+    case 'cute':
+      drawCuteBasket();
+      break;
+    case 'box':
+      drawBoxBasket();
+      break;
+    case 'hat':
+      drawHatBasket();
+      break;
+    default:
+      drawClassicBasket();
+      break;
   }
   
-  // Now draw the main basket
-  // Shadow
-  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-  ctx.beginPath();
-  ctx.moveTo(basket.x + shadowOffset, basket.y + shadowOffset);
-  ctx.lineTo(basket.x + basket.width + shadowOffset, basket.y + shadowOffset);
-  ctx.lineTo(basket.x + basket.width + shadowOffset, basket.y + basket.height + shadowOffset);
-  ctx.lineTo(basket.x + shadowOffset, basket.y + basket.height + shadowOffset);
-  ctx.closePath();
-  ctx.fill();
+  ctx.restore();
   
-  // Draw 3D sides
-  
-  // Right side - darker
-  ctx.fillStyle = basket.tertiaryColor;
-  ctx.beginPath();
-  ctx.moveTo(basket.x + basket.width, basket.y);
-  ctx.lineTo(basket.x + basket.width + basketDepth, basket.y + basketDepth);
-  ctx.lineTo(basket.x + basket.width + basketDepth, basket.y + basket.height + basketDepth);
-  ctx.lineTo(basket.x + basket.width, basket.y + basket.height);
-  ctx.closePath();
-  ctx.fill();
-  
-  // Bottom side
-  ctx.fillStyle = darkenColor(basket.color, 30);
-  ctx.beginPath();
-  ctx.moveTo(basket.x, basket.y + basket.height);
-  ctx.lineTo(basket.x + basketDepth, basket.y + basket.height + basketDepth);
-  ctx.lineTo(basket.x + basket.width + basketDepth, basket.y + basket.height + basketDepth);
-  ctx.lineTo(basket.x + basket.width, basket.y + basket.height);
-  ctx.closePath();
-  ctx.fill();
-  
-  // Main basket face with metallic gradient
-  const basketGradient = ctx.createLinearGradient(
-    basket.x, basket.y, 
-    basket.x + basket.width, basket.y + basket.height
-  );
-  
-  // Change gradient based on powerup status or damage flash
-  if (basket.damageFlash) {
-    // Red gradient for damage
-    basketGradient.addColorStop(0, "#ff5555");
-    basketGradient.addColorStop(0.5, "#ff3030");
-    basketGradient.addColorStop(1, "#cc0000");
-    
-    // Add red glow effect when damaged
-    ctx.shadowColor = "#ff0000";
-    ctx.shadowBlur = 20;
-  } else if (gameState.hasActivePowerup) {
-    const powerupColor = powerupTypes.find(p => p.type === gameState.activePowerupType)?.color || basket.color;
-    basketGradient.addColorStop(0, lightenColor(powerupColor, 20));
-    basketGradient.addColorStop(0.5, powerupColor);
-    basketGradient.addColorStop(1, darkenColor(powerupColor, 20));
-    
-    // Add glow effect when powerup is active
-    ctx.shadowColor = powerupColor;
-    ctx.shadowBlur = glowIntensity;
-  } else {
-    basketGradient.addColorStop(0, lightenColor(basket.color, 20));
-    basketGradient.addColorStop(0.5, basket.color);
-    basketGradient.addColorStop(1, darkenColor(basket.color, 20));
-  }
-  
-  ctx.fillStyle = basketGradient;
-  ctx.fillRect(basket.x, basket.y, basket.width, basket.height);
-  
-  // Reset shadow
-  ctx.shadowBlur = 0;
-  
-  // Top rim - lighter
-  ctx.fillStyle = lightenColor(basket.color, 20);
-  ctx.fillRect(basket.x, basket.y, basket.width, 10);
-  
-  // Basket pattern
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
-  ctx.lineWidth = 2;
-  
-  // Vertical lines with perspective
-  for (let i = 1; i < 4; i++) {
-    const x = basket.x + (basket.width / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(x, basket.y);
-    ctx.lineTo(x, basket.y + basket.height);
-    // Add perspective lines to rim
-    ctx.moveTo(x, basket.y);
-    ctx.lineTo(x + basketDepth/2, basket.y + basketDepth/2);
-    ctx.stroke();
-  }
-  
-  // Horizontal line with perspective
-  const midY = basket.y + basket.height/2;
-  ctx.beginPath();
-  ctx.moveTo(basket.x, midY);
-  ctx.lineTo(basket.x + basket.width, midY);
-  // Add perspective line to right side
-  ctx.moveTo(basket.x + basket.width, midY);
-  ctx.lineTo(basket.x + basket.width + basketDepth, midY + basketDepth);
-  ctx.stroke();
-  
-  // Add metallic highlight
-  const highlightGradient = ctx.createLinearGradient(
-    basket.x, basket.y, 
-    basket.x + basket.width/3, basket.y + basket.height/3
-  );
-  highlightGradient.addColorStop(0, "rgba(255, 255, 255, 0.7)");
-  highlightGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-  
-  ctx.fillStyle = highlightGradient;
+  // Add shadow beneath basket for 3D effect
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
   ctx.beginPath();
   ctx.ellipse(
-    basket.x + basket.width/5, 
-    basket.y + basket.height/5, 
-    basket.width/5, 
-    basket.height/8, 
-    Math.PI/4, 0, Math.PI * 2
+    basket.x + basket.width/2, 
+    basket.y + basket.height + 10, 
+    basket.width/2 * 0.8, 
+    basket.height/4 * 0.5, 
+    0, 0, Math.PI * 2
   );
   ctx.fill();
+}
+
+// Classic wicker basket style
+function drawClassicBasket() {
+  // Base basket shape - 3D effect with depth
+  ctx.fillStyle = basket.powerupActive ? getPowerupBasketColor() : basket.color;
   
-  // Pulse animation when powerup is active
-  if (gameState.hasActivePowerup) {
-    const pulseFactor = Math.sin(Date.now() / 200) * 0.1 + 0.9;
-    const pulseSize = basket.width * 0.6 * pulseFactor;
-    
-    const powerupColor = powerupTypes.find(p => p.type === gameState.activePowerupType)?.color || "#ffffff";
-    const pulseGradient = ctx.createRadialGradient(
-      basket.x + basket.width/2, basket.y + basket.height/2, 0,
-      basket.x + basket.width/2, basket.y + basket.height/2, pulseSize
-    );
-    
-    pulseGradient.addColorStop(0, "rgba(255, 255, 255, 0.3)");
-    pulseGradient.addColorStop(0.7, `${powerupColor}40`);
-    pulseGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-    
-    ctx.fillStyle = pulseGradient;
-    ctx.fillRect(
-      basket.x - pulseSize/2, 
-      basket.y - pulseSize/2, 
-      basket.width + pulseSize, 
-      basket.height + pulseSize
-    );
+  // Bottom of basket (3D effect)
+  ctx.fillStyle = basket.tertiaryColor;
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, basket.height/2);
+  ctx.lineTo(-basket.width/2 + basket.depth, basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2 - basket.depth, basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2, basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Front face of basket
+  ctx.fillStyle = basket.powerupActive ? getPowerupBasketColor() : basket.color;
+  ctx.fillRect(-basket.width/2, -basket.height/2, basket.width, basket.height);
+  
+  // Right side of basket (3D)
+  ctx.fillStyle = basket.secondaryColor;
+  ctx.beginPath();
+  ctx.moveTo(basket.width/2, -basket.height/2);
+  ctx.lineTo(basket.width/2 - basket.depth, -basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2 - basket.depth, basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2, basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Top of basket (3D)
+  ctx.fillStyle = basket.powerupActive ? getDarkerPowerupColor() : darkenColor(basket.color, 20);
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, -basket.height/2);
+  ctx.lineTo(-basket.width/2 + basket.depth, -basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2 - basket.depth, -basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2, -basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Wicker pattern horizontal lines
+  const lineCount = 5;
+  const lineSpacing = basket.height / (lineCount + 1);
+  
+  ctx.strokeStyle = basket.powerupActive ? getLighterPowerupColor() : lightenColor(basket.color, 10);
+  ctx.lineWidth = 2;
+  
+  for (let i = 1; i <= lineCount; i++) {
+    const y = -basket.height/2 + i * lineSpacing;
+    ctx.beginPath();
+    ctx.moveTo(-basket.width/2, y);
+    ctx.lineTo(basket.width/2, y);
+    ctx.stroke();
   }
+  
+  // Wicker pattern vertical lines
+  const vertLineCount = 8;
+  const vertLineSpacing = basket.width / (vertLineCount + 1);
+  
+  for (let i = 1; i <= vertLineCount; i++) {
+    const x = -basket.width/2 + i * vertLineSpacing;
+    ctx.beginPath();
+    ctx.moveTo(x, -basket.height/2);
+    ctx.lineTo(x, basket.height/2);
+    ctx.stroke();
+  }
+  
+  // Handle
+  ctx.strokeStyle = basket.powerupActive ? getDarkerPowerupColor() : basket.tertiaryColor;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(0, -basket.height/2 - 20, basket.width/3, 0, Math.PI, true);
+  ctx.stroke();
+}
+
+// Futuristic spaceship-style basket
+function drawFuturisticBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#4686FF";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#00D1FF";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#1A3A75";
+  
+  // Main body
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, 0);
+  ctx.lineTo(-basket.width/2 + 10, -basket.height/2);
+  ctx.lineTo(basket.width/2 - 10, -basket.height/2);
+  ctx.lineTo(basket.width/2, 0);
+  ctx.lineTo(basket.width/2 - 15, basket.height/2);
+  ctx.lineTo(-basket.width/2 + 15, basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Bottom shadow
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2 + 15, basket.height/2);
+  ctx.lineTo(basket.width/2 - 15, basket.height/2);
+  ctx.lineTo(basket.width/2 - 20, basket.height/2 - 10);
+  ctx.lineTo(-basket.width/2 + 20, basket.height/2 - 10);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Cockpit/dome
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.arc(0, -basket.height/4, basket.width/4, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Dome highlight
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.beginPath();
+  ctx.arc(-5, -basket.height/4 - 5, basket.width/8, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Side thrusters
+  ctx.fillStyle = darkColor;
+  ctx.fillRect(-basket.width/2 - 10, -5, 12, 10);
+  ctx.fillRect(basket.width/2 - 2, -5, 12, 10);
+  
+  // Thruster glow effect
+  if (Math.random() > 0.5) {
+    ctx.fillStyle = 'rgba(255, 165, 0, 0.8)';
+    ctx.beginPath();
+    ctx.moveTo(-basket.width/2 - 10, 0);
+    ctx.lineTo(-basket.width/2 - 20, 5);
+    ctx.lineTo(-basket.width/2 - 20, -5);
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.moveTo(basket.width/2 + 10, 0);
+    ctx.lineTo(basket.width/2 + 20, 5);
+    ctx.lineTo(basket.width/2 + 20, -5);
+    ctx.fill();
+  }
+  
+  // Detail lines
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/3, basket.height/4);
+  ctx.lineTo(basket.width/3, basket.height/4);
+  ctx.stroke();
+  
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/4, basket.height/2 - 5);
+  ctx.lineTo(basket.width/4, basket.height/2 - 5);
+  ctx.stroke();
+}
+
+// Cute teddy bear basket style
+function drawCuteBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#BA8E6D";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#8B5A2B";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#E8C19D";
+  
+  // Main body (bear shape)
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(0, 0, basket.width/2 - 5, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Ears
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(-basket.width/3, -basket.height/2 + 5, basket.width/6, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/3, -basket.height/2 + 5, basket.width/6, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Inner ears
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.arc(-basket.width/3, -basket.height/2 + 5, basket.width/10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/3, -basket.height/2 + 5, basket.width/10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Eyes
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.arc(-basket.width/6, -basket.height/8, basket.width/14, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/6, -basket.height/8, basket.width/14, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Eye highlights
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.arc(-basket.width/6 + 2, -basket.height/8 - 2, basket.width/25, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/6 + 2, -basket.height/8 - 2, basket.width/25, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Nose
+  ctx.fillStyle = '#FF9999';
+  ctx.beginPath();
+  ctx.arc(0, 0, basket.width/10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Mouth
+  ctx.strokeStyle = darkColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, basket.height/8, basket.width/5, 0.2, Math.PI - 0.2);
+  ctx.stroke();
+  
+  // Basket opening/hollow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.beginPath();
+  ctx.arc(0, basket.height/6, basket.width/3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Box basket style
+function drawBoxBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#A67C52";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#C69C6D";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#7D5A3C";
+  
+  // Main box
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(-basket.width/2, -basket.height/2, basket.width, basket.height);
+  
+  // Box top flaps
+  ctx.fillStyle = accentColor;
+  
+  // Left flap
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, -basket.height/2);
+  ctx.lineTo(-basket.width/6, -basket.height/2 - basket.height/4);
+  ctx.lineTo(0, -basket.height/2);
+  ctx.lineTo(-basket.width/2, -basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Right flap
+  ctx.beginPath();
+  ctx.moveTo(basket.width/2, -basket.height/2);
+  ctx.lineTo(basket.width/6, -basket.height/2 - basket.height/4);
+  ctx.lineTo(0, -basket.height/2);
+  ctx.lineTo(basket.width/2, -basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Box details - tape
+  ctx.strokeStyle = darkColor;
+  ctx.lineWidth = 4;
+  
+  // Horizontal tape
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, 0);
+  ctx.lineTo(basket.width/2, 0);
+  ctx.stroke();
+  
+  // Vertical tape
+  ctx.beginPath();
+  ctx.moveTo(0, -basket.height/2);
+  ctx.lineTo(0, basket.height/2);
+  ctx.stroke();
+  
+  // Box inner shadow for depth
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.fillRect(-basket.width/2 + 5, -basket.height/2 + 5, basket.width - 10, basket.height - 10);
+  
+  // Box edge highlights
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-basket.width/2, -basket.height/2, basket.width, basket.height);
+  
+  // Optional box label
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.font = Math.floor(basket.width/10) + 'px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText("CATCH", 0, basket.height/4);
+}
+
+// Hat basket style
+function drawHatBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#2C3E50";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#34495E";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#1B2631";
+  
+  // Hat brim
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.ellipse(0, basket.height/3, basket.width/2, basket.height/6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Hat body (cylinder)
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.ellipse(0, -basket.height/3, basket.width/3, basket.height/10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Connect the top and bottom of hat
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/3, -basket.height/3);
+  ctx.lineTo(-basket.width/3, basket.height/3);
+  ctx.lineTo(basket.width/3, basket.height/3);
+  ctx.lineTo(basket.width/3, -basket.height/3);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Hat band
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.rect(-basket.width/3, -basket.height/6, basket.width*2/3, basket.height/10);
+  ctx.fill();
+  
+  // Hat band decoration
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.beginPath();
+  ctx.ellipse(basket.width/6, -basket.height/6 + basket.height/20, basket.width/12, basket.height/20, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Inside of the hat (hollow for catching)
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.ellipse(0, -basket.height/3, basket.width/4, basket.height/12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Hat shine effect
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, -basket.height/3, basket.width/3.5, basket.height/11, 0, Math.PI * 0.3, Math.PI * 0.7);
+  ctx.stroke();
+}
+
+// Helper function to get color based on active powerup
+function getPowerupBasketColor() {
+  if (gameState.hasActivePowerup && gameState.activePowerupType) {
+    const powerupInfo = powerupTypes.find(p => p.type === gameState.activePowerupType);
+    return powerupInfo ? powerupInfo.color : basket.color;
+  }
+  return basket.color;
+}
+
+function getLighterPowerupColor() {
+  if (gameState.hasActivePowerup && gameState.activePowerupType) {
+    const powerupInfo = powerupTypes.find(p => p.type === gameState.activePowerupType);
+    return powerupInfo ? lightenColor(powerupInfo.color, 30) : lightenColor(basket.color, 30);
+  }
+  return lightenColor(basket.color, 30);
+}
+
+function getDarkerPowerupColor() {
+  if (gameState.hasActivePowerup && gameState.activePowerupType) {
+    const powerupInfo = powerupTypes.find(p => p.type === gameState.activePowerupType);
+    return powerupInfo ? darkenColor(powerupInfo.color, 30) : darkenColor(basket.color, 30);
+  }
+  return darkenColor(basket.color, 30);
 }
 
 // Modify drawFallingItems to add more realistic fruit rendering
@@ -2032,1813 +2169,49 @@ function updateUI() {
 }
 
 // Main game loop with frame rate independence
-function gameLoop(timestamp) {
-  // Calculate delta time (time since last frame in seconds)
-  const deltaTime = (timestamp - gameState.lastUpdateTime) / 1000;
-  gameState.lastUpdateTime = timestamp;
-  
-  // Cap deltaTime to avoid huge jumps if the game was in background
-  const cappedDeltaTime = Math.min(deltaTime, 0.1); 
-  
-  // Apply game speed multiplier to delta time
-  const adjustedDeltaTime = cappedDeltaTime * gameState.gameSpeed;
-  
-  if (!gameState.isPaused) {
+function animate(currentTime) {
+  if (gameState.isPaused) {
+    animationFrame = requestAnimationFrame(animate);
+    return;
+  }
+
+  // Calculate time elapsed since last frame
+  gameState.now = currentTime;
+  gameState.elapsed = gameState.now - gameState.then;
+
+  // Only draw if enough time has elapsed
+  if (gameState.elapsed > gameState.fpsInterval) {
+    // Adjust for time sync
+    gameState.then = gameState.now - (gameState.elapsed % gameState.fpsInterval);
+    
+    // Calculate delta time for smooth animations
+    const deltaTime = Math.min((gameState.now - gameState.lastFrameTime) / 1000, 0.1); // Cap at 100ms
+    gameState.lastFrameTime = gameState.now;
+    gameState.deltaTime = deltaTime;
+
+    // Clear with optimization
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Update screen shake effect with frame rate independence
-    updateScreenShake(adjustedDeltaTime);
+    // Apply screen shake with smoothing
+    if (screenShake.active) {
+      applyScreenShake(deltaTime);
+    }
     
+    // Draw game elements with delta time
     drawBackground();
+    updateParticles(deltaTime);
+    updateAndDrawItems(deltaTime);
     drawBasket();
-    drawFallingItems();
-    drawObstacles();
-    updateParticles(adjustedDeltaTime);
-    
-    // Update active powerup time with frame rate independence
-    if (gameState.hasActivePowerup) {
-      gameState.powerupTimeLeft -= adjustedDeltaTime * 1000; // Convert to ms
-      
-      if (gameState.powerupTimeLeft <= 0) {
-        // Handle powerup deactivation
-        if (gameState.activePowerupType === "giant") {
-          // Reset basket size based on current lives
-          const sizeFactor = gameState.lives === 1 ? 0.65 : (gameState.lives === 2 ? 0.8 : 1.0);
-          basket.width = 80 * sizeFactor;
-          basket.height = 60 * sizeFactor;
-        } else if (gameState.activePowerupType === "timeSlow") {
-          // Reset time
-          if (gameState.timeSlowFactor) {
-            window.requestAnimationFrame = gameState.originalRequestAnimationFrame;
-            gameState.timeSlowFactor = null;
-            const overlay = document.getElementById("timeSlowOverlay");
-            if (overlay) document.body.removeChild(overlay);
-          }
-        } else if (gameState.activePowerupType === "doubleTrouble") {
-          // Remove shadow basket
-          gameState.shadowBasket = null;
-        }
-        
-        gameState.hasActivePowerup = false;
-        gameState.activePowerupType = null;
-        basket.powerupActive = false;
-      }
-      
-      // Handle magnet powerup
-      if (gameState.activePowerupType === "magnet") {
-        // Pull items toward basket
-        const magnetStrength = 3 * adjustedDeltaTime * 60; // Normalize to 60fps
-        gameState.fallingItems.forEach(item => {
-          const dx = (basket.x + basket.width/2) - (item.x + item.size/2);
-          const dy = (basket.y + basket.height/2) - (item.y + item.size/2);
-          const distance = Math.sqrt(dx*dx + dy*dy);
-          
-          if (distance < 200) { // Only affect items within range
-            const factor = 1 - (distance / 200);
-            item.x += dx * factor * 0.05 * magnetStrength;
-            item.y += dy * factor * 0.05 * magnetStrength;
-            
-            // Add magnetic particle effect occasionally
-            if (Math.random() > 0.95) {
-              gameState.particles.push({
-                x: item.x + item.size/2,
-                y: item.y + item.size/2,
-                size: Math.random() * 3 + 1,
-                speedX: dx * 0.01,
-                speedY: dy * 0.01,
-                color: "#9b59b6",
-                life: 20,
-                opacity: 0.7,
-                height: Math.random() * 3
-              });
-            }
-          }
-        });
-      }
-    }
-    
-    // Update positions of all falling items using deltaTime
-    gameState.fallingItems.forEach(item => {
-      if (!item.frozen) {
-        item.rotation += item.rotationSpeed * adjustedDeltaTime * 60;
-        item.y += item.speed * adjustedDeltaTime * 60;
-      }
-    });
-    
-    // Update positions of all powerups using deltaTime
-    gameState.bonusItems.forEach(item => {
-      item.rotation += item.rotationSpeed * adjustedDeltaTime * 60;
-      item.y += item.speed * adjustedDeltaTime * 60;
-    });
-    
-    // Update positions of all obstacles using deltaTime
-    gameState.obstacles.forEach(obstacle => {
-      if (!obstacle.frozen) {
-        obstacle.rotation += obstacle.rotationSpeed * adjustedDeltaTime * 60;
-        obstacle.y += obstacle.speed * adjustedDeltaTime * 60;
-      }
-    });
-    
-    // Check collisions with falling items
-    for (let i = gameState.fallingItems.length - 1; i >= 0; i--) {
-      const item = gameState.fallingItems[i];
-      
-      // Skip frozen items
-      if (item.frozen) continue;
-      
-      // Check collision with main basket
-      let collision = checkCollision(item);
-      
-      // Also check collision with shadow basket if doubleTrouble is active
-      if (!collision && gameState.hasActivePowerup && gameState.activePowerupType === "doubleTrouble" && gameState.shadowBasket) {
-        // Create a temporary collision box for the shadow basket
-        const shadowBasket = {
-          x: basket.x + gameState.shadowBasket.offsetX,
-          y: basket.y + gameState.shadowBasket.offsetY,
-          width: gameState.shadowBasket.width,
-          height: gameState.shadowBasket.height
-        };
-        
-        // Check collision with shadow basket
-        collision = (
-          item.x < shadowBasket.x + shadowBasket.width &&
-          item.x + item.size > shadowBasket.x &&
-          item.y + item.size > shadowBasket.y &&
-          item.y < shadowBasket.y + shadowBasket.height
-        );
-      }
-      
-      if (collision) {
-        // Apply score multiplier if active
-        const multiplier = (gameState.hasActivePowerup && gameState.activePowerupType === "multiplier") ? 2 : 1;
-        gameState.score += item.points * multiplier;
-        
-        // Create particles for celebration
-        createParticles(item.x + item.size/2, item.y + item.size/2, item.color, 20);
-        
-        // Try to play sound
-        playSound("collect");
-        if (item.points >= 3) playSound("bounce"); // Extra sound for high-value items
-        
-        gameState.fallingItems.splice(i, 1);
-        gameState.fallingItems.push(createFallingItem());
-        
-        // Check if level is complete
-        const currentLevelConfig = levelConfig[Math.min(gameState.level - 1, levelConfig.length - 1)];
-        if (gameState.score >= currentLevelConfig.targetScore) {
-          levelUp();
-          break;
-        }
-      } else if (item.y > canvas.height) {
-        gameState.fallingItems[i] = createFallingItem();
-      }
-    }
-    
-    // Check collisions with bonus items (powerups)
-    for (let i = gameState.bonusItems.length - 1; i >= 0; i--) {
-      const item = gameState.bonusItems[i];
-      
-      // Check collision with main basket
-      let collision = checkCollision(item);
-      
-      // Also check collision with shadow basket if doubleTrouble is active
-      if (!collision && gameState.hasActivePowerup && gameState.activePowerupType === "doubleTrouble" && gameState.shadowBasket) {
-        // Create a temporary collision box for the shadow basket
-        const shadowBasket = {
-          x: basket.x + gameState.shadowBasket.offsetX,
-          y: basket.y + gameState.shadowBasket.offsetY,
-          width: gameState.shadowBasket.width,
-          height: gameState.shadowBasket.height
-        };
-        
-        // Check collision with shadow basket
-        collision = (
-          item.x < shadowBasket.x + shadowBasket.width &&
-          item.x + item.size > shadowBasket.x &&
-          item.y + item.size > shadowBasket.y &&
-          item.y < shadowBasket.y + shadowBasket.height
-        );
-      }
-      
-      if (collision) {
-        // Activate powerup
-        activatePowerup(item.powerupType, item.duration);
-        
-        // Create particles
-        createParticles(item.x + item.size/2, item.y + item.size/2, item.color, 30);
-        
-        // Try to play sound
-        playSound("powerup");
-        
-        gameState.bonusItems.splice(i, 1);
-      } else if (item.y > canvas.height) {
-        gameState.bonusItems.splice(i, 1);
-      }
-    }
-    
-    // Check collisions with obstacles
-    for (let i = gameState.obstacles.length - 1; i >= 0; i--) {
-      const obstacle = gameState.obstacles[i];
-      
-      // Skip frozen obstacles
-      if (obstacle.frozen) continue;
-      
-      // Check collision with main basket
-      let collision = checkCollision(obstacle);
-      
-      // Also check collision with shadow basket if doubleTrouble is active
-      if (!collision && gameState.hasActivePowerup && gameState.activePowerupType === "doubleTrouble" && gameState.shadowBasket) {
-        // Create a temporary collision box for the shadow basket
-        const shadowBasket = {
-          x: basket.x + gameState.shadowBasket.offsetX,
-          y: basket.y + gameState.shadowBasket.offsetY,
-          width: gameState.shadowBasket.width,
-          height: gameState.shadowBasket.height
-        };
-        
-        // Check collision with shadow basket
-        collision = (
-          obstacle.x < shadowBasket.x + shadowBasket.width &&
-          obstacle.x + obstacle.size > shadowBasket.x &&
-          obstacle.y + obstacle.size > shadowBasket.y &&
-          obstacle.y < shadowBasket.y + shadowBasket.height
-        );
-      }
-      
-      if (collision) {
-        // If shield powerup is active or player is invincible, destroy obstacle without penalty
-        if ((gameState.hasActivePowerup && gameState.activePowerupType === "shield") || gameState.isInvincible) {
-          // Create different particle effects based on whether it's a shield or invincibility
-          if (gameState.hasActivePowerup && gameState.activePowerupType === "shield") {
-            createParticles(obstacle.x + obstacle.size/2, obstacle.y + obstacle.size/2, "#27ae60", 20);
-          } else {
-            // Special pink invincibility particles
-            createParticles(obstacle.x + obstacle.size/2, obstacle.y + obstacle.size/2, "#e91e63", 20);
-          }
-          playSound("bounce");
-        } else {
-          // Deduct points and life
-          gameState.score = Math.max(0, gameState.score - obstacle.points * 5);
-          gameState.lives--;
-          
-          // AI FEATURE: Shrink the basket when player loses a life
-          // Only if not already using giant powerup
-          if (!gameState.hasActivePowerup || gameState.activePowerupType !== "giant") {
-            // Store original dimensions for reference
-            const originalWidth = 80;
-            const originalHeight = 60;
-            
-            // Calculate new size based on remaining lives (3 = 100%, 2 = 80%, 1 = 65%)
-            const sizeFactors = [0.65, 0.8, 1.0];
-            const sizeFactor = sizeFactors[gameState.lives - 1] || 0.65;
-            
-            // Update basket dimensions
-            basket.width = originalWidth * sizeFactor;
-            basket.height = originalHeight * sizeFactor;
-            
-            // Create visual effect for basket shrinking
-            createBasketShrinkEffect();
-          }
-          
-          // Create particles for obstacle hit
-          createParticles(obstacle.x + obstacle.size/2, obstacle.y + obstacle.size/2, obstacle.color, 15);
-          
-          // Add screen shake effect based on obstacle type
-          const shakeIntensity = obstacle.points * 3 + 3; // More points = stronger shake
-          startScreenShake(shakeIntensity, 300); // 300ms shake duration
-          
-          // Check game over
-          if (gameState.lives <= 0) {
-            gameOver();
-            break;
-          }
-          
-          // Try to play sound
-          playSound("obstacle");
-        }
-        
-        gameState.obstacles.splice(i, 1);
-      } else if (obstacle.y > canvas.height) {
-        gameState.obstacles.splice(i, 1);
-      }
-    }
-    
-    updateUI();
-  }
-  
-  animationFrame = requestAnimationFrame(gameLoop);
-}
 
-// Activate powerup with enhanced effects
-function activatePowerup(type, duration) {
-  // Clear any existing powerup
-  if (gameState.hasActivePowerup) {
-    // If giant powerup is ending, reset basket size
-    if (gameState.activePowerupType === "giant") {
-      basket.width = 80;
-      basket.height = 60;
-    } else if (gameState.activePowerupType === "doubleTrouble") {
-      // Remove shadow basket if it exists
-      if (gameState.shadowBasket) {
-        gameState.shadowBasket = null;
-      }
+    // Performance monitoring
+    if (!gameState.performanceMode && deltaTime > 1/30) {
+      console.log('Performance drop detected, enabling optimizations');
+      enablePerformanceMode();
     }
   }
-  
-  gameState.hasActivePowerup = true;
-  gameState.activePowerupType = type;
-  gameState.powerupTimeLeft = duration;
-  basket.powerupActive = true;
-  
-  // Handle immediate effect powerups
-  switch(type) {
-    case "blast":
-      // Create a powerful blast effect at the center
-      const blastX = canvas.width / 2;
-      const blastY = canvas.height / 2;
-      
-      // Larger explosion effect at center
-      for (let i = 0; i < 40; i++) {
-        gameState.particles.push({
-          x: blastX,
-          y: blastY,
-          size: Math.random() * 10 + 5,
-          speedX: (Math.random() - 0.5) * 15,
-          speedY: (Math.random() - 0.5) * 15,
-          color: i % 2 === 0 ? "#ff9800" : "#ffeb3b",
-          life: 60 + Math.random() * 30,
-          opacity: 1,
-          height: Math.random() * 10
-        });
-      }
-      
-      // Create shockwave effect
-      const shockwave = document.createElement("div");
-      shockwave.style.position = "fixed";
-      shockwave.style.top = "50%";
-      shockwave.style.left = "50%";
-      shockwave.style.width = "10px";
-      shockwave.style.height = "10px";
-      shockwave.style.borderRadius = "50%";
-      shockwave.style.transform = "translate(-50%, -50%)";
-      shockwave.style.boxShadow = "0 0 0 0 rgba(255, 152, 0, 0.8)";
-      shockwave.style.animation = "shockwaveEffect 0.5s ease-out forwards";
-      shockwave.style.zIndex = "1000";
-      document.body.appendChild(shockwave);
-      
-      // Add shockwave keyframes if not already in document
-      if (!document.getElementById("shockwaveKeyframes")) {
-        const keyframes = document.createElement("style");
-        keyframes.id = "shockwaveKeyframes";
-        keyframes.innerHTML = `
-          @keyframes shockwaveEffect {
-            0% {
-              box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.8);
-            }
-            100% {
-              box-shadow: 0 0 0 100vh rgba(255, 152, 0, 0);
-            }
-          }
-        `;
-        document.head.appendChild(keyframes);
-      }
-      
-      // Collect all items on screen
-      gameState.fallingItems.forEach(item => {
-        // Create collection particles at each item location
-        createParticles(item.x + item.size/2, item.y + item.size/2, item.color, 15);
-        
-        // Add connecting line effect from center to each item
-        const dx = item.x + item.size/2 - blastX;
-        const dy = item.y + item.size/2 - blastY;
-        const angle = Math.atan2(dy, dx);
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        // Add particles along the line
-        for (let i = 0; i < distance; i += distance / 10) {
-          if (Math.random() > 0.7) {
-            const x = blastX + Math.cos(angle) * i;
-            const y = blastY + Math.sin(angle) * i;
-            gameState.particles.push({
-              x: x,
-              y: y,
-              size: Math.random() * 3 + 1,
-              speedX: Math.cos(angle) * 2,
-              speedY: Math.sin(angle) * 2,
-              color: "#ff9800",
-              life: 20 + Math.random() * 10,
-              opacity: 0.7,
-              height: Math.random() * 3
-            });
-          }
-        }
-        
-        // Add score
-        const multiplier = (gameState.hasActivePowerup && gameState.activePowerupType === "multiplier") ? 2 : 1;
-        gameState.score += item.points * multiplier;
-      });
-      
-      // Clear obstacles too
-      gameState.obstacles.forEach(obstacle => {
-        createParticles(obstacle.x + obstacle.size/2, obstacle.y + obstacle.size/2, "#ff9800", 15);
-        
-        // Add connecting line effect like with items
-        const dx = obstacle.x + obstacle.size/2 - blastX;
-        const dy = obstacle.y + obstacle.size/2 - blastY;
-        const angle = Math.atan2(dy, dx);
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        for (let i = 0; i < distance; i += distance / 10) {
-          if (Math.random() > 0.7) {
-            const x = blastX + Math.cos(angle) * i;
-            const y = blastY + Math.sin(angle) * i;
-            gameState.particles.push({
-              x: x,
-              y: y,
-              size: Math.random() * 3 + 1,
-              speedX: Math.cos(angle) * 2,
-              speedY: Math.sin(angle) * 2,
-              color: "#ff9800",
-              life: 20 + Math.random() * 10,
-              opacity: 0.7,
-              height: Math.random() * 3
-            });
-          }
-        }
-      });
-      
-      // Screen flash effect
-      const flashOverlay = document.createElement("div");
-      flashOverlay.style.position = "fixed";
-      flashOverlay.style.top = "0";
-      flashOverlay.style.left = "0";
-      flashOverlay.style.width = "100%";
-      flashOverlay.style.height = "100%";
-      flashOverlay.style.backgroundColor = "rgba(255, 152, 0, 0.3)";
-      flashOverlay.style.zIndex = "1000";
-      flashOverlay.style.pointerEvents = "none";
-      document.body.appendChild(flashOverlay);
-      
-      // Start screen shake with more intensity
-      startScreenShake(20, 500);
-      
-      // Replace all items and obstacles with new ones
-      gameState.fallingItems = [];
-      for (let i = 0; i < 5; i++) {
-        gameState.fallingItems.push(createFallingItem());
-      }
-      gameState.obstacles = [];
-      
-      // Remove flash and shockwave after animation
-      setTimeout(() => {
-        document.body.removeChild(flashOverlay);
-        document.body.removeChild(shockwave);
-      }, 500);
-      break;
-      
-    case "extraLife":
-      // Add a heart to the UI if player has less than 3 lives
-      if (gameState.lives < 3) {
-        gameState.lives++;
-        
-        // Create heart explosion effect
-        createHeartExplosion();
-        
-        // Play special heart sound
-        try {
-          playSound("powerup");
-          setTimeout(() => playSound("collect"), 200);
-        } catch (e) {
-          console.log("Sound play error:", e);
-        }
-        
-        // Set a temporary invincibility
-        gameState.isInvincible = true;
-        setTimeout(() => {
-          gameState.isInvincible = false;
-        }, 2000);
-        
-        // Highlight the lives display
-        const livesElem = document.getElementById("lives");
-        if (livesElem) {
-          livesElem.style.transition = "all 0.3s ease";
-          livesElem.style.transform = "translateZ(10px) scale(1.2)";
-          livesElem.style.boxShadow = "0 0 15px #e91e63";
-          
-          setTimeout(() => {
-            livesElem.style.transform = "translateZ(10px) scale(1)";
-            livesElem.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.2)";
-          }, 1000);
-        }
-      } else {
-        // If player already has max lives, give them points instead
-        gameState.score += 50;
-        
-        // Create text particle to show bonus
-        for (let i = 0; i < 5; i++) {
-          gameState.particles.push({
-            x: canvas.width/2 + (Math.random()*40 - 20),
-            y: canvas.height/2 + (Math.random()*20 - 10),
-            size: 10,
-            speedX: Math.random() * 2 - 1,
-            speedY: -2 - Math.random(),
-            color: "#e91e63",
-            life: 60,
-            opacity: 1,
-            height: 5,
-            text: "+10 pts"
-          });
-        }
-        
-        // Create visual indication that lives are maxed
-        const maxLivesText = document.createElement("div");
-        maxLivesText.innerHTML = "MAX LIVES! +50 pts";
-        maxLivesText.style.position = "fixed";
-        maxLivesText.style.fontSize = "24px";
-        maxLivesText.style.fontWeight = "bold";
-        maxLivesText.style.color = "#e91e63";
-        maxLivesText.style.top = "50%";
-        maxLivesText.style.left = "50%";
-        maxLivesText.style.transform = "translate(-50%, -50%)";
-        maxLivesText.style.zIndex = "1000";
-        maxLivesText.style.textShadow = "0 0 10px #fff";
-        maxLivesText.style.pointerEvents = "none";
-        document.body.appendChild(maxLivesText);
-        
-        // Add glowing effect to the score
-        const scoreElem = document.getElementById("score");
-        if (scoreElem) {
-          scoreElem.style.transition = "all 0.3s ease";
-          scoreElem.style.boxShadow = "0 0 15px #e91e63";
-          scoreElem.style.backgroundColor = "rgba(233, 30, 99, 0.2)";
-          
-          setTimeout(() => {
-            scoreElem.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.2)";
-            scoreElem.style.backgroundColor = "rgba(255, 255, 255, 0.7)";
-          }, 1000);
-        }
-        
-        // Add sparkling particles around the score
-        const scoreRect = scoreElem.getBoundingClientRect();
-        for (let i = 0; i < 15; i++) {
-          gameState.particles.push({
-            x: scoreRect.left + Math.random() * scoreRect.width,
-            y: scoreRect.top + Math.random() * scoreRect.height,
-            size: Math.random() * 3 + 1,
-            speedX: Math.random() * 2 - 1,
-            speedY: Math.random() * 2 - 1,
-            color: "#e91e63",
-            life: 30 + Math.random() * 20,
-            opacity: 1,
-            height: Math.random() * 3
-          });
-        }
-        
-        // Remove text after animation
-        setTimeout(() => {
-          document.body.removeChild(maxLivesText);
-        }, 1000);
-      }
-      break;
-      
-    case "giant":
-      // Calculate the base size multiplier based on current lives
-      const baseSizeFactor = gameState.lives === 1 ? 0.65 : (gameState.lives === 2 ? 0.8 : 1.0);
-      
-      // Increase basket size by 50% of the calculated size
-      basket.width = 80 * baseSizeFactor * 1.5;
-      basket.height = 60 * baseSizeFactor * 1.5;
-      
-      // Create growth effect
-      for (let i = 0; i < 30; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const distance = Math.random() * 30 + 20;
-        gameState.particles.push({
-          x: basket.x + basket.width/2 + Math.cos(angle) * distance,
-          y: basket.y + basket.height/2 + Math.sin(angle) * distance,
-          size: Math.random() * 6 + 3,
-          speedX: Math.cos(angle) * 2,
-          speedY: Math.sin(angle) * 2,
-          color: "#4CAF50",
-          life: 40 + Math.random() * 20,
-          opacity: 0.8,
-          height: Math.random() * 5
-        });
-      }
-      break;
-      
-    case "freeze":
-      // Temporarily freeze all items
-      gameState.fallingItems.forEach(item => {
-        item.frozen = true;
-        item.originalSpeed = item.speed;
-        item.speed = 0;
-        // Create frost particles
-        createParticles(item.x + item.size/2, item.y + item.size/2, "#00bcd4", 5);
-      });
-      gameState.obstacles.forEach(obstacle => {
-        obstacle.frozen = true;
-        obstacle.originalSpeed = obstacle.speed;
-        obstacle.speed = 0;
-        // Create frost particles
-        createParticles(obstacle.x + obstacle.size/2, obstacle.y + obstacle.size/2, "#00bcd4", 5);
-      });
-      
-      // Unfreeze after duration (instead of hardcoded 3 seconds)
-      setTimeout(() => {
-        if (gameState.activePowerupType === "freeze") {
-          gameState.fallingItems.forEach(item => {
-            if (item.frozen) {
-              item.frozen = false;
-              item.speed = item.originalSpeed || 2;
-            }
-          });
-          gameState.obstacles.forEach(obstacle => {
-            if (obstacle.frozen) {
-              obstacle.frozen = false;
-              obstacle.speed = obstacle.originalSpeed || 2;
-            }
-          });
-          
-          // Create thawing effect
-          for (let i = 0; i < 10; i++) {
-            const randomItem = gameState.fallingItems[Math.floor(Math.random() * gameState.fallingItems.length)];
-            if (randomItem) {
-              createParticles(randomItem.x + randomItem.size/2, 
-                           randomItem.y + randomItem.size/2, 
-                           "#81d4fa", 3);
-            }
-            
-            const randomObstacle = gameState.obstacles[Math.floor(Math.random() * gameState.obstacles.length)];
-            if (randomObstacle) {
-              createParticles(randomObstacle.x + randomObstacle.size/2, 
-                           randomObstacle.y + randomObstacle.size/2, 
-                           "#81d4fa", 3);
-            }
-          }
-        }
-      }, duration);
-      break;
-      
-    case "timeSlow":
-      // Slow down game time (Matrix-style slow motion effect)
-      if (!gameState.timeSlowFactor) {
-        gameState.timeSlowFactor = 0.5; // Half speed
-        gameState.originalRequestAnimationFrame = window.requestAnimationFrame;
-        window.requestAnimationFrame = callback => {
-          return gameState.originalRequestAnimationFrame(time => {
-            callback(time * gameState.timeSlowFactor);
-          });
-        };
-        
-        // Add visual time slow effect
-        const timeSlowOverlay = document.createElement("div");
-        timeSlowOverlay.id = "timeSlowOverlay";
-        timeSlowOverlay.style.position = "fixed";
-        timeSlowOverlay.style.top = "0";
-        timeSlowOverlay.style.left = "0";
-        timeSlowOverlay.style.width = "100%";
-        timeSlowOverlay.style.height = "100%";
-        timeSlowOverlay.style.backgroundColor = "rgba(103, 58, 183, 0.1)";
-        timeSlowOverlay.style.zIndex = "999";
-        timeSlowOverlay.style.pointerEvents = "none";
-        document.body.appendChild(timeSlowOverlay);
-        
-        // Slow down all existing items and obstacles
-        gameState.fallingItems.forEach(item => {
-          item.originalSpeed = item.speed;
-          item.speed *= 0.5;
-        });
-        
-        gameState.obstacles.forEach(obstacle => {
-          obstacle.originalSpeed = obstacle.speed;
-          obstacle.speed *= 0.5;
-        });
-      }
-      
-      // Set timeout to revert time slow after duration
-      setTimeout(() => {
-        if (gameState.timeSlowFactor && gameState.activePowerupType === "timeSlow") {
-          window.requestAnimationFrame = gameState.originalRequestAnimationFrame;
-          gameState.timeSlowFactor = null;
-          const overlay = document.getElementById("timeSlowOverlay");
-          if (overlay) document.body.removeChild(overlay);
-          
-          // Reset speeds of items and obstacles
-          gameState.fallingItems.forEach(item => {
-            if (item.originalSpeed) {
-              item.speed = item.originalSpeed;
-              delete item.originalSpeed;
-            }
-          });
-          
-          gameState.obstacles.forEach(obstacle => {
-            if (obstacle.originalSpeed) {
-              obstacle.speed = obstacle.originalSpeed;
-              delete obstacle.originalSpeed;
-            }
-          });
-        }
-      }, duration);
-      break;
-      
-    case "doubleTrouble":
-      // Create a shadow basket that follows the main one
-      gameState.shadowBasket = {
-        width: basket.width,
-        height: basket.height,
-        depth: basket.depth,
-        color: "#ff5722", // Orange color for shadow basket
-        secondaryColor: darkenColor("#ff5722", 20),
-        tertiaryColor: darkenColor("#ff5722", 40),
-        offsetX: -30, // Initial offset from main basket
-        offsetY: -30
-      };
-      
-      // Create visual effect for the new basket appearing
-      const portalEffect = document.createElement("div");
-      portalEffect.style.position = "fixed";
-      portalEffect.style.width = "80px";
-      portalEffect.style.height = "80px";
-      portalEffect.style.top = `${basket.y - 40}px`;
-      portalEffect.style.left = `${basket.x - 40}px`;
-      portalEffect.style.borderRadius = "50%";
-      portalEffect.style.background = "radial-gradient(circle, #ff5722 0%, rgba(255,87,34,0) 70%)";
-      portalEffect.style.animation = "portalPulse 1s ease-out forwards";
-      portalEffect.style.zIndex = "1000";
-      document.body.appendChild(portalEffect);
-      
-      // Add portal animation keyframes
-      if (!document.getElementById("portalKeyframes")) {
-        const keyframes = document.createElement("style");
-        keyframes.id = "portalKeyframes";
-        keyframes.innerHTML = `
-          @keyframes portalPulse {
-            0% { transform: scale(0.1); opacity: 1; }
-            100% { transform: scale(2); opacity: 0; }
-          }
-        `;
-        document.head.appendChild(keyframes);
-      }
-      
-      // Remove portal effect after animation
-      setTimeout(() => {
-        document.body.removeChild(portalEffect);
-      }, 1000);
-      
-      // Set timeout to remove shadow basket after duration
-      setTimeout(() => {
-        if (gameState.activePowerupType === "doubleTrouble") {
-          // Create disappearing effect
-          if (gameState.shadowBasket) {
-            const fadeEffect = document.createElement("div");
-            fadeEffect.style.position = "fixed";
-            fadeEffect.style.width = "80px";
-            fadeEffect.style.height = "80px";
-            fadeEffect.style.top = `${basket.y + gameState.shadowBasket.offsetY - 40}px`;
-            fadeEffect.style.left = `${basket.x + gameState.shadowBasket.offsetX - 40}px`;
-            fadeEffect.style.borderRadius = "50%";
-            fadeEffect.style.background = "radial-gradient(circle, #ff5722 0%, rgba(255,87,34,0) 70%)";
-            fadeEffect.style.animation = "portalPulse 1s ease-in forwards";
-            fadeEffect.style.zIndex = "1000";
-            document.body.appendChild(fadeEffect);
-            
-            // Remove fade effect after animation
-            setTimeout(() => {
-              document.body.removeChild(fadeEffect);
-            }, 1000);
-            
-            // Remove shadow basket
-            gameState.shadowBasket = null;
-          }
-        }
-      }, duration);
-      break;
-      
-    case "goldRush":
-      // Store original item types and create golden versions
-      gameState.originalItems = [];
-      gameState.fallingItems.forEach(item => {
-        // Store original properties
-        gameState.originalItems.push({
-          x: item.x,
-          y: item.y,
-          type: item.type,
-          points: item.points,
-          color: item.color
-        });
-        
-        // Transform to gold items (coins, gems, or stars)
-        const goldTypes = ["coin", "gem", "star"];
-        const randomType = goldTypes[Math.floor(Math.random() * goldTypes.length)];
-        const goldItem = itemTypes.find(i => i.type === randomType) || itemTypes[0];
-        
-        // Apply gold transformation with sparkle effect
-        item.type = randomType;
-        item.points = goldItem.points * 2; // Double points for gold rush items
-        item.color = "#ffd700"; // Gold color
-        
-        // Create transformation particles
-        createParticles(item.x + item.size/2, item.y + item.size/2, "#ffd700", 10);
-      });
-      
-      // Create a gold flash effect
-      const goldFlash = document.createElement("div");
-      goldFlash.style.position = "fixed";
-      goldFlash.style.top = "0";
-      goldFlash.style.left = "0";
-      goldFlash.style.width = "100%";
-      goldFlash.style.height = "100%";
-      goldFlash.style.backgroundColor = "rgba(255, 215, 0, 0.3)";
-      goldFlash.style.zIndex = "999";
-      goldFlash.style.pointerEvents = "none";
-      document.body.appendChild(goldFlash);
-      
-      // Add pulsing gold effect
-      goldFlash.style.animation = "goldPulse 1s ease-in-out";
-      
-      // Add gold pulse keyframes
-      if (!document.getElementById("goldKeyframes")) {
-        const keyframes = document.createElement("style");
-        keyframes.id = "goldKeyframes";
-        keyframes.innerHTML = `
-          @keyframes goldPulse {
-            0% { opacity: 0.3; }
-            50% { opacity: 0.6; }
-            100% { opacity: 0; }
-          }
-        `;
-        document.head.appendChild(keyframes);
-      }
-      
-      // Remove gold flash after animation
-      setTimeout(() => {
-        document.body.removeChild(goldFlash);
-      }, 1000);
-      
-      // Continuously transform new items that spawn during gold rush
-      const goldRushInterval = setInterval(() => {
-        gameState.fallingItems.forEach(item => {
-          // Skip already transformed items
-          if (item.goldRushTransformed) return;
-          
-          // Transform to gold items
-          const goldTypes = ["coin", "gem", "star"];
-          const randomType = goldTypes[Math.floor(Math.random() * goldTypes.length)];
-          const goldItem = itemTypes.find(i => i.type === randomType) || itemTypes[0];
-          
-          // Apply gold transformation
-          item.type = randomType;
-          item.points = goldItem.points * 2; // Double points for gold rush items
-          item.color = "#ffd700"; // Gold color
-          item.goldRushTransformed = true; // Mark as transformed
-          
-          // Create transformation particles
-          createParticles(item.x + item.size/2, item.y + item.size/2, "#ffd700", 5);
-        });
-      }, 500);
-      
-      // Set timeout to restore items after duration
-      setTimeout(() => {
-        if (gameState.activePowerupType === "goldRush") {
-          // Clear the gold rush interval
-          clearInterval(goldRushInterval);
-          
-          // Return currently visible items to normal types
-          gameState.fallingItems.forEach(item => {
-            if (item.goldRushTransformed) {
-              // Pick a random normal fruit
-              const normalFruits = ["apple", "banana", "orange", "strawberry", "watermelon"];
-              const randomFruit = normalFruits[Math.floor(Math.random() * normalFruits.length)];
-              const fruitItem = itemTypes.find(i => i.type === randomFruit) || itemTypes[0];
-              
-              // Transform back
-              item.type = fruitItem.type;
-              item.points = fruitItem.points;
-              item.color = fruitItem.color;
-              delete item.goldRushTransformed;
-              
-              // Create de-transformation particles
-              createParticles(item.x + item.size/2, item.y + item.size/2, fruitItem.color, 5);
-            }
-          });
-        }
-      }, duration);
-      break;
-  }
-  
-  // Display powerup notification
-  document.getElementById("powerup").classList.remove("hidden");
-  document.getElementById("powerup").innerHTML = `PowerUp: ${type} <span class="powerup-emoji">${powerupTypes.find(p => p.type === type)?.emoji || ''}</span> (${Math.ceil(duration / 1000)}s)`;
-}
 
-// Level up function
-function levelUp() {
-  gameState.level++;
-  gameState.isPaused = true;
-  
-  // Try to play level up sound
-  try {
-    playSound("levelUp");
-  } catch (e) {
-    console.log("Sound play error:", e);
-  }
-  
-  // Update level UI
-  document.getElementById("newLevel").innerText = gameState.level;
-  levelUpScreen.style.display = "flex";
-  levelUpScreen.classList.add("show");
-  
-  // Apply consistent styling to level up screen
-  levelUpScreen.style.backgroundColor = "rgba(52, 152, 219, 0.9)";
-  levelUpScreen.style.border = "4px solid rgba(41, 128, 185, 1)";
-  levelUpScreen.style.borderRadius = "15px";
-  levelUpScreen.style.boxShadow = "0 8px 16px rgba(0, 0, 0, 0.4)";
-  levelUpScreen.style.color = "white";
-  levelUpScreen.style.fontFamily = "'Arial', sans-serif";
-  
-  // Style level up button
-  const nextLevelBtn = document.getElementById("nextLevelBtn");
-  if (nextLevelBtn) {
-    nextLevelBtn.style.backgroundColor = "rgba(46, 204, 113, 0.9)";
-    nextLevelBtn.style.color = "white";
-    nextLevelBtn.style.border = "2px solid rgba(39, 174, 96, 1)";
-    nextLevelBtn.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-    nextLevelBtn.style.padding = "12px 24px";
-    nextLevelBtn.style.borderRadius = "8px";
-    nextLevelBtn.style.margin = "10px";
-    nextLevelBtn.style.cursor = "pointer";
-    nextLevelBtn.style.fontSize = "18px";
-    nextLevelBtn.style.transition = "all 0.2s ease";
-    
-    // Add hover effect
-    nextLevelBtn.addEventListener('mouseover', () => {
-      nextLevelBtn.style.backgroundColor = "rgba(39, 174, 96, 1)";
-      nextLevelBtn.style.transform = "scale(1.05)";
-    });
-    
-    nextLevelBtn.addEventListener('mouseout', () => {
-      nextLevelBtn.style.backgroundColor = "rgba(46, 204, 113, 0.9)";
-      nextLevelBtn.style.transform = "scale(1)";
-    });
-  }
-  
-  // Reset progress bar
-  document.getElementById("progressBar").style.width = "0%";
-  
-  // Update target score for next level
-  if (gameState.level <= levelConfig.length) {
-    gameState.targetScore = levelConfig[gameState.level - 1].targetScore;
-  } else {
-    // For levels beyond config, increase difficulty
-    const lastLevelConfig = levelConfig[levelConfig.length - 1];
-    gameState.targetScore = Math.floor(lastLevelConfig.targetScore * 1.5);
-  }
-}
-
-// Game over function
-function gameOver() {
-  gameState.isPaused = true;
-  
-  // Try to play game over sound
-  try {
-    playSound("gameOver");
-  } catch (e) {
-    console.log("Sound play error:", e);
-  }
-  
-  // Update game over UI
-  document.getElementById("finalScore").innerText = gameState.score;
-  document.getElementById("finalLevel").innerText = gameState.level;
-  gameOverScreen.style.display = "flex";
-  gameOverScreen.classList.add("show");
-  
-  // Apply consistent styling to game over screen
-  gameOverScreen.style.backgroundColor = "rgba(231, 76, 60, 0.9)";
-  gameOverScreen.style.border = "4px solid rgba(192, 57, 43, 1)";
-  gameOverScreen.style.borderRadius = "15px";
-  gameOverScreen.style.boxShadow = "0 8px 16px rgba(0, 0, 0, 0.4)";
-  gameOverScreen.style.color = "white";
-  gameOverScreen.style.fontFamily = "'Arial', sans-serif";
-  
-  // Style play again button
-  const playAgainBtn = document.getElementById("playAgainBtn");
-  if (playAgainBtn) {
-    playAgainBtn.style.backgroundColor = "rgba(52, 152, 219, 0.9)";
-    playAgainBtn.style.color = "white";
-    playAgainBtn.style.border = "2px solid rgba(41, 128, 185, 1)";
-    playAgainBtn.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-    playAgainBtn.style.padding = "12px 24px";
-    playAgainBtn.style.borderRadius = "8px";
-    playAgainBtn.style.margin = "10px";
-    playAgainBtn.style.cursor = "pointer";
-    playAgainBtn.style.fontSize = "18px";
-    playAgainBtn.style.transition = "all 0.2s ease";
-    
-    // Add hover effect
-    playAgainBtn.addEventListener('mouseover', () => {
-      playAgainBtn.style.backgroundColor = "rgba(41, 128, 185, 1)";
-      playAgainBtn.style.transform = "scale(1.05)";
-    });
-    
-    playAgainBtn.addEventListener('mouseout', () => {
-      playAgainBtn.style.backgroundColor = "rgba(52, 152, 219, 0.9)";
-      playAgainBtn.style.transform = "scale(1)";
-    });
-  }
-  
-  // Clear intervals
-  clearInterval(obstacleInterval);
-  clearInterval(powerupInterval);
-}
-
-// Start the game with performance monitoring and frame rate independence
-function startGame() {
-  console.log("Starting game!");
-  
-  // Store current mute state
-  const wasMuted = gameState.isMuted;
-  const savedGameSpeed = gameState.gameSpeed || 1.0;
-  
-  // Reset game state
-  gameState = {
-    score: 0,
-    level: 1,
-    lives: 3,
-    targetScore: levelConfig[0].targetScore,
-    isPaused: false,
-    hasActivePowerup: false,
-    activePowerupType: null,
-    powerupTimeLeft: 0,
-    fallingItems: [],
-    obstacles: [],
-    particles: [],
-    bonusItems: [],
-    isMuted: wasMuted, // Preserve mute state
-    timeSlowFactor: null,
-    lastFrameTime: 0,
-    frameRate: 60,
-    performanceMode: false,
-    gameSpeed: savedGameSpeed, // Preserve game speed setting
-    baseItemSpeed: 1.5, // Base speed for falling items
-    lastUpdateTime: 0, // For frame rate independence
-    isInvincible: false // Track invincibility state for extraLife powerup
-  };
-  
-  // Update speed display
-  updateSpeedLabel();
-  
-  // Reset basket
-  basket.x = canvas.width / 2 - basket.width / 2;
-  // Set basket size based on lives
-  const sizeFactor = gameState.lives === 1 ? 0.65 : (gameState.lives === 2 ? 0.8 : 1.0);
-  basket.width = 80 * sizeFactor;
-  basket.height = 60 * sizeFactor;
-  basket.powerupActive = false;
-  
-  // Reset UI
-  updateUI();
-  intro.style.display = "none";
-  canvas.style.display = "block";
-  controls.style.display = "flex";
-  gameInterface.style.display = "block";
-  levelUpScreen.style.display = "none";
-  levelUpScreen.classList.remove("show");
-  gameOverScreen.style.display = "none";
-  gameOverScreen.classList.remove("show");
-  
-  // Make sure speed controls exist
-  if (!document.getElementById("speedControls")) {
-    addSpeedControls();
-  }
-  
-  // Performance monitoring
-  const performanceMonitor = setInterval(() => {
-    if (gameState.frameRate < 45 && !gameState.performanceMode) {
-      console.log("Low frame rate detected, enabling performance mode");
-      gameState.performanceMode = true;
-      // Reduce particle effects
-      createParticles = function(x, y, color, amount) {
-        amount = Math.min(amount, 10); // Cap particles
-        for (let i = 0; i < amount; i++) {
-          gameState.particles.push({
-            x: x,
-            y: y,
-            size: Math.random() * 4 + 2,
-            speedX: Math.random() * 4 - 2,
-            speedY: Math.random() * 4 - 2,
-            color: color,
-            life: 20 + Math.random() * 10,
-            opacity: 1,
-            height: Math.random() * 3
-          });
-        }
-      };
-    }
-  }, 5000);
-  
-  // Play start sound and background music
-  playSound("start");
-  setTimeout(() => {
-    // Only play background music if not muted
-    if (!gameState.isMuted) {
-      playSound("background");
-    }
-  }, 500);
-  
-  // Create initial falling items
-  gameState.fallingItems = [];
-  for (let i = 0; i < 5; i++) {
-    gameState.fallingItems.push(createFallingItem());
-  }
-  
-  // Clear any existing intervals
-  if (obstacleInterval) clearInterval(obstacleInterval);
-  if (powerupInterval) clearInterval(powerupInterval);
-  if (animationFrame) cancelAnimationFrame(animationFrame);
-  
-  // Create obstacles at intervals - using slower rate for better gameplay
-  obstacleInterval = setInterval(() => {
-    if (!gameState.isPaused) {
-      const currentLevel = levelConfig[Math.min(gameState.level - 1, levelConfig.length - 1)];
-      if (gameState.obstacles.length < currentLevel.maxObstacles) {
-        gameState.obstacles.push(createObstacle());
-        // Play sound when obstacle appears
-        if (Math.random() > 0.7) playSound("fall");
-      }
-    }
-  }, Math.max(2000, levelConfig[0].obstacleFrequency / gameState.gameSpeed)); // Adjust for game speed
-  
-  // Create powerups at intervals, increasing frequency with level
-  powerupInterval = setInterval(() => {
-    if (!gameState.isPaused && gameState.bonusItems.length < 1) {
-      // Make powerups available from level 1
-      const powerupChance = 0.15 + (gameState.level * 0.08); // 23% at level 1, 31% at level 2, etc.
-      
-      if (Math.random() < powerupChance) {
-        gameState.bonusItems.push(createPowerup());
-        playSound("bounce");
-      }
-    }
-  }, Math.max(5000, (8000 - (gameState.level * 500)) / gameState.gameSpeed)); // Adjust for game speed
-  
-  // Performance tracking for game loop
-  let lastTime = performance.now();
-  let frameCount = 0;
-  
-  // Track last update time for delta calculation
-  gameState.lastUpdateTime = performance.now();
-  
-  // Enhanced game loop with FPS monitoring
-  function enhancedGameLoop(timestamp) {
-    // Calculate frame rate every second
-    frameCount++;
-    if (timestamp - lastTime >= 1000) {
-      gameState.frameRate = frameCount;
-      frameCount = 0;
-      lastTime = timestamp;
-    }
-    
-    // Call the main game loop with timestamp
-    gameLoop(timestamp);
-  }
-  
-  // Start the enhanced game loop
-  animationFrame = requestAnimationFrame(enhancedGameLoop);
-  
-  console.log("Game started!");
-}
-
-// Continue to next level
-function continueToNextLevel() {
-  gameState.isPaused = false;
-  levelUpScreen.style.display = "none";
-  levelUpScreen.classList.remove("show");
-  
-  // Update obstacle interval based on new level
-  const currentLevel = levelConfig[Math.min(gameState.level - 1, levelConfig.length - 1)];
-  clearInterval(obstacleInterval);
-  obstacleInterval = setInterval(() => {
-    if (!gameState.isPaused && gameState.obstacles.length < currentLevel.maxObstacles) {
-      gameState.obstacles.push(createObstacle());
-    }
-  }, currentLevel.obstacleFrequency);
-}
-
-// Restart the game
-function restartGame() {
-  startGame();
-}
-
-// Pause the game
-function pauseGame() {
-  gameState.isPaused = !gameState.isPaused;
-  document.getElementById("pauseBtn").innerText = gameState.isPaused ? "Resume" : "Pause";
-  
-  // Play button sound
-  playSound("button");
-  
-  // Pause/resume background music only if not muted
-  if (!gameState.isMuted) {
-    if (gameState.isPaused) {
-      sounds.background.pause();
-    } else {
-      sounds.background.play();
-    }
-  }
-}
-
-// Quit the game
-function quitGame() {
-  clearInterval(obstacleInterval);
-  clearInterval(powerupInterval);
-  
-  if (animationFrame) {
-    cancelAnimationFrame(animationFrame);
-  }
-  
-  // Stop background music
-  sounds.background.pause();
-  playSound("button");
-  
-  gameState.fallingItems = [];
-  gameState.obstacles = [];
-  gameState.particles = [];
-  gameState.bonusItems = [];
-  gameState.isPaused = false;
-  
-  canvas.style.display = "none";
-  controls.style.display = "none";
-  gameInterface.style.display = "none";
-  intro.style.display = "flex";
-  
-  document.getElementById("score").innerText = "Score: 0";
-  document.getElementById("level").innerText = "Level: 1";
-  document.getElementById("lives").innerText = "Lives: 3";
-  document.getElementById("progressBar").style.width = "0%";
-}
-
-// Toggle mute function
-function toggleMute() {
-  gameState.isMuted = !gameState.isMuted;
-  
-  // Update button text
-  document.getElementById("muteBtn").innerText = gameState.isMuted ? "🔇" : "🔊";
-  
-  // Handle background music
-  if (gameState.isMuted) {
-    if (sounds.background.paused === false) {
-      sounds.background.pause();
-    }
-  } else {
-    // Only resume background music if game is not paused
-    if (!gameState.isPaused && canvas.style.display !== "none") {
-      sounds.background.play();
-    }
-  }
-  
-  // Play button sound (this will only play if unmuting)
-  playSound("button");
-}
-
-// Event Listeners
-document.getElementById("startGameBtn").addEventListener("click", function() {
-  playSound("button");
-  startGame();
-});
-document.getElementById("startGameBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  startGame();
-});
-document.getElementById("restartBtn").addEventListener("click", function() {
-  playSound("button");
-  restartGame();
-});
-document.getElementById("restartBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  restartGame();
-});
-// Sound effect handled inside pauseGame function
-document.getElementById("pauseBtn").addEventListener("click", pauseGame);
-document.getElementById("pauseBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  pauseGame();
-});
-// Sound effect handled inside quitGame function
-document.getElementById("quitBtn").addEventListener("click", quitGame);
-document.getElementById("quitBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  quitGame();
-});
-document.getElementById("playAgainBtn").addEventListener("click", function() {
-  playSound("button");
-  restartGame();
-});
-document.getElementById("playAgainBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  restartGame();
-});
-document.getElementById("muteBtn").addEventListener("click", toggleMute);
-document.getElementById("muteBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  toggleMute();
-});
-document.getElementById("nextLevelBtn").addEventListener("click", function() {
-  playSound("button");
-  continueToNextLevel();
-});
-document.getElementById("nextLevelBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  continueToNextLevel();
-});
-
-window.addEventListener("keydown", moveBasket);
-canvas.addEventListener("touchmove", touchMoveBasket);
-
-// Make canvas responsive
-function resizeCanvas() {
-  const maxWidth = window.innerWidth * 0.9;
-  const maxHeight = window.innerHeight * 0.7;
-  const aspectRatio = canvas.width / canvas.height;
-  
-  let newWidth = maxWidth;
-  let newHeight = newWidth / aspectRatio;
-  
-  if (newHeight > maxHeight) {
-    newHeight = maxHeight;
-    newWidth = newHeight * aspectRatio;
-  }
-  
-  canvas.style.width = newWidth + "px";
-  canvas.style.height = newHeight + "px";
-}
-
-// Initial resize and resize on window change
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
-
-// Prevent context menu on long press (mobile)
-canvas.addEventListener('contextmenu', function(e) {
-  e.preventDefault();
-});
-
-// Initialize the game when the page loads
-window.addEventListener('load', function() {
-  console.log("Game initialized");
-  // Initialize canvas size
-  canvas.width = 400;
-  canvas.height = 600;
-  
-  // Show intro and handle UI
-  intro.style.display = "flex";
-  canvas.style.display = "none";
-  controls.style.display = "none";
-  gameInterface.style.display = "none";
-  
-  // Make sure all UI elements are in the correct state
-  document.getElementById("score").innerText = "Score: 0";
-  document.getElementById("level").innerText = "Level: 1";
-  
-  // Initialize hearts for lives display
-  document.getElementById("lives").innerHTML = "Lives: ❤️❤️❤️";
-  
-  document.getElementById("progressBar").style.width = "0%";
-  document.getElementById("muteBtn").innerText = gameState.isMuted ? "🔇" : "🔊";
-  
-  // Apply consistent styling to game UI elements
-  const uiElements = document.querySelectorAll('#gameInterface > div:not(#progressContainer)');
-  uiElements.forEach(element => {
-    element.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    element.style.color = "white";
-    element.style.border = "2px solid rgba(41, 128, 185, 0.9)";
-    element.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-    element.style.padding = "8px 12px";
-    element.style.borderRadius = "8px";
-    element.style.margin = "5px";
-    element.style.fontFamily = "'Arial', sans-serif";
-  });
-  
-  // Style progress container
-  const progressContainer = document.getElementById("progressContainer");
-  if (progressContainer) {
-    progressContainer.style.backgroundColor = "rgba(236, 240, 241, 0.6)";
-    progressContainer.style.border = "2px solid rgba(41, 128, 185, 0.9)";
-    progressContainer.style.borderRadius = "10px";
-    progressContainer.style.overflow = "hidden";
-  }
-  
-  // Style progress bar
-  const progressBar = document.getElementById("progressBar");
-  if (progressBar) {
-    progressBar.style.backgroundColor = "rgba(46, 204, 113, 0.8)";
-    progressBar.style.transition = "width 0.3s ease";
-  }
-  
-  // Style game controls
-  const controlButtons = document.querySelectorAll('#controls button');
-  controlButtons.forEach(button => {
-    button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    button.style.color = "white";
-    button.style.border = "2px solid rgba(41, 128, 185, 0.9)";
-    button.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-    button.style.padding = "8px 16px";
-    button.style.borderRadius = "8px";
-    button.style.margin = "0 5px";
-    button.style.cursor = "pointer";
-    button.style.fontFamily = "'Arial', sans-serif";
-    button.style.fontSize = "16px";
-    button.style.transition = "all 0.2s ease";
-    
-    // Add hover effect
-    button.addEventListener('mouseover', () => {
-      button.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
-      button.style.transform = "translateY(-2px)";
-    });
-    
-    button.addEventListener('mouseout', () => {
-      button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-      button.style.transform = "translateY(0)";
-    });
-  });
-  
-  // Preload sounds to avoid startup issues
-  try {
-    for (const sound in sounds) {
-      sounds[sound].load();
-    }
-  } catch (e) {
-    console.log("Error preloading sounds:", e);
-  }
-  
-  // Setup mobile controls if on touch device
-  if ("ontouchstart" in window) {
-    setupMobileControls();
-    document.getElementById("mobileControls").style.display = "flex";
-    
-    // Show the appropriate instructions in the intro
-    if (document.getElementById("mobile-control-hint")) {
-      document.getElementById("mobile-control-hint").style.display = "inline-block";
-      document.getElementById("desktop-control-hint").style.display = "none";
-    }
-  } else {
-    // Show desktop instructions
-    if (document.getElementById("desktop-control-hint")) {
-      document.getElementById("desktop-control-hint").style.display = "inline-block";
-      document.getElementById("mobile-control-hint").style.display = "none";
-    }
-  }
-  
-  // Add 3D lighting effect to intro
-  const lightingEffect = document.createElement("div");
-  lightingEffect.className = "lighting-effect";
-  document.getElementById("intro").appendChild(lightingEffect);
-  
-  // Ensure canvas is properly sized
-  resizeCanvas();
-});
-
-// Setup mobile controls
-function setupMobileControls() {
-  const mobileControls = document.createElement("div");
-  mobileControls.id = "mobileControls";
-  mobileControls.style.position = "fixed";
-  mobileControls.style.bottom = "20px";
-  mobileControls.style.left = "0";
-  mobileControls.style.right = "0";
-  mobileControls.style.display = "flex";
-  mobileControls.style.justifyContent = "space-between";
-  mobileControls.style.padding = "0 20px";
-  mobileControls.style.zIndex = "1000";
-  
-  // Variables to store interval IDs
-  let moveLeftInterval = null;
-  let moveRightInterval = null;
-  
-  // Standardize button styling
-  const buttonStyle = {
-    width: "80px",
-    height: "80px",
-    borderRadius: "50%",
-    backgroundColor: "rgba(52, 152, 219, 0.8)",
-    color: "white",
-    fontSize: "40px",
-    border: "4px solid rgba(41, 128, 185, 0.9)",
-    boxShadow: "0 4px 8px rgba(0, 0, 0, 0.3)",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    userSelect: "none",
-    touchAction: "manipulation"
-  };
-  
-  const leftBtn = document.createElement("div");
-  leftBtn.className = "controlBtn";
-  leftBtn.innerHTML = "←";
-  
-  // Apply standardized styling to left button
-  Object.assign(leftBtn.style, buttonStyle);
-  
-  leftBtn.addEventListener("touchstart", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Visual feedback on press
-    leftBtn.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
-    leftBtn.style.transform = "scale(0.95)";
-    
-    // Clear any existing intervals first
-    if (moveLeftInterval) clearInterval(moveLeftInterval);
-    if (moveRightInterval) clearInterval(moveRightInterval);
-    
-    moveLeftInterval = setInterval(() => {
-      if (basket.x > 0 && !gameState.isPaused) basket.x -= basket.speed/2;
-    }, 16);
-  });
-  
-  leftBtn.addEventListener("touchend", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Reset visual state
-    leftBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    leftBtn.style.transform = "scale(1)";
-    
-    if (moveLeftInterval) {
-      clearInterval(moveLeftInterval);
-      moveLeftInterval = null;
-    }
-  });
-  
-  leftBtn.addEventListener("touchcancel", (e) => {
-    e.preventDefault();
-    
-    // Reset visual state
-    leftBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    leftBtn.style.transform = "scale(1)";
-    
-    if (moveLeftInterval) {
-      clearInterval(moveLeftInterval);
-      moveLeftInterval = null;
-    }
-  });
-  
-  const rightBtn = document.createElement("div");
-  rightBtn.className = "controlBtn";
-  rightBtn.innerHTML = "→";
-  
-  // Apply standardized styling to right button
-  Object.assign(rightBtn.style, buttonStyle);
-  
-  rightBtn.addEventListener("touchstart", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Visual feedback on press
-    rightBtn.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
-    rightBtn.style.transform = "scale(0.95)";
-    
-    // Clear any existing intervals first
-    if (moveRightInterval) clearInterval(moveRightInterval);
-    if (moveLeftInterval) clearInterval(moveLeftInterval);
-    
-    moveRightInterval = setInterval(() => {
-      if (basket.x + basket.width < canvas.width && !gameState.isPaused) basket.x += basket.speed/2;
-    }, 16);
-  });
-  
-  rightBtn.addEventListener("touchend", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    // Reset visual state
-    rightBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    rightBtn.style.transform = "scale(1)";
-    
-    if (moveRightInterval) {
-      clearInterval(moveRightInterval);
-      moveRightInterval = null;
-    }
-  });
-  
-  rightBtn.addEventListener("touchcancel", (e) => {
-    e.preventDefault();
-    
-    // Reset visual state
-    rightBtn.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    rightBtn.style.transform = "scale(1)";
-    
-    if (moveRightInterval) {
-      clearInterval(moveRightInterval);
-      moveRightInterval = null;
-    }
-  });
-  
-  mobileControls.appendChild(leftBtn);
-  mobileControls.appendChild(rightBtn);
-  document.body.appendChild(mobileControls);
-  
-  // Add global touch handler to ensure all intervals are cleared if touch ends outside buttons
-  document.addEventListener("touchend", (e) => {
-    if (moveLeftInterval) {
-      clearInterval(moveLeftInterval);
-      moveLeftInterval = null;
-    }
-    if (moveRightInterval) {
-      clearInterval(moveRightInterval);
-      moveRightInterval = null;
-    }
-  }, { passive: true });
-}
-
-// Add a test function that can be called from the console
-function testGame() {
-  console.log("Testing game functionality...");
-  
-  // Test basic game objects
-  console.log("Canvas:", canvas);
-  console.log("Context:", ctx);
-  console.log("Game State:", gameState);
-  console.log("Basket:", basket);
-  
-  // Test drawing functions
-  console.log("Testing draw functions...");
-  try {
-    drawBackground();
-    drawBasket();
-    console.log("Background and basket drawn successfully");
-  } catch (e) {
-    console.error("Error in drawing functions:", e);
-  }
-  
-  // Test item creation
-  console.log("Testing item creation...");
-  try {
-    const testItem = createFallingItem();
-    gameState.fallingItems.push(testItem);
-    console.log("Created test item:", testItem);
-    
-    const testObstacle = createObstacle();
-    gameState.obstacles.push(testObstacle);
-    console.log("Created test obstacle:", testObstacle);
-    
-    if (gameState.level >= 2) {
-      const testPowerup = createPowerup();
-      gameState.bonusItems.push(testPowerup);
-      console.log("Created test powerup:", testPowerup);
-    }
-  } catch (e) {
-    console.error("Error in item creation:", e);
-  }
-  
-  // Test game movement
-  console.log("Testing movement...");
-  try {
-    const oldY = gameState.fallingItems[0].y;
-    // Force a game loop iteration
-    gameLoop();
-    const newY = gameState.fallingItems[0].y;
-    console.log("Item before:", oldY, "Item after:", newY);
-    if (newY > oldY) {
-      console.log("Items are moving correctly!");
-    } else {
-      console.log("Movement test failed - items not moving");
-    }
-  } catch (e) {
-    console.error("Error in movement test:", e);
-  }
-  
-  return "Test complete - check console for results";
-}
-
-// Make test available in the window object
-window.testGame = testGame;
-
-// Run a simple test on load to verify functionality
-window.addEventListener('load', function() {
-  // Wait 1 second then run a simplified game test
-  setTimeout(() => {
-    try {
-      console.log("Running automatic game verification...");
-      
-      // Verify canvas and context
-      if (!canvas || !ctx) {
-        console.error("Canvas or context not available!");
-      } else {
-        console.log("Canvas and context verified");
-      }
-      
-      // Check if we can draw to the canvas
-      try {
-        ctx.fillStyle = "#ff0000";
-        ctx.fillRect(10, 10, 10, 10);
-        console.log("Canvas drawing verified");
-      } catch (e) {
-        console.error("Canvas drawing failed:", e);
-      }
-    } catch (e) {
-      console.error("Game verification failed:", e);
-    }
-  }, 1000);
-}); 
-
-// Test function to verify new fruits and obstacles
-function testRenderingImprovements() {
-  console.log("Testing improved rendering...");
-  
-  // Clear canvas
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  // Test background
-  drawBackground();
-  
-  // Spacing for the test items
-  const spacing = canvas.width / 10;
-  const yPos = canvas.height / 4;
-  
-  // Test each fruit type
-  console.log("Testing fruit rendering...");
-  const testFruits = ["apple", "banana", "orange", "watermelon", "pineapple", "gem", "coin", "star"];
-  testFruits.forEach((fruitType, index) => {
-    // Find matching item type
-    const itemType = itemTypes.find(item => item.type === fruitType) || itemTypes[0];
-    
-    // Create test fruit item
-    const testFruit = {
-      x: spacing + index * spacing,
-      y: yPos,
-      size: 40,
-      type: fruitType,
-      points: itemType.points,
-      color: itemType.color,
-      rotation: 0,
-      rotationSpeed: 0,
-      scale: 1,
-      scaleDirection: 0.005,
-      height: itemType.height,
-      shadowOffset: itemType.shadowOffset,
-      wobble: 0
-    };
-    
-    // Add to game state temporarily
-    gameState.fallingItems.push(testFruit);
-  });
-  
-  // Test each obstacle type
-  console.log("Testing obstacle rendering...");
-  obstacleTypes.forEach((obstacleType, index) => {
-    // Create test obstacle
-    const testObstacle = {
-      x: spacing + index * spacing,
-      y: yPos * 2,
-      size: 40,
-      type: "obstacle",
-      obstacleType: obstacleType.type,
-      points: obstacleType.deduction,
-      color: obstacleType.color,
-      rotation: 0,
-      rotationSpeed: 0,
-      height: obstacleType.height,
-      shadowOffset: obstacleType.shadowOffset,
-      wobble: 0,
-      emoji: obstacleType.emoji
-    };
-    
-    // Add to game state temporarily
-    gameState.obstacles.push(testObstacle);
-  });
-  
-  // Draw test items
-  drawFallingItems();
-  drawObstacles();
-  
-  // Log test items for inspection
-  console.log("Test fruits:", gameState.fallingItems.slice(-testFruits.length));
-  console.log("Test obstacles:", gameState.obstacles.slice(-obstacleTypes.length));
-  
-  // Clean up test items after a few seconds
-  setTimeout(() => {
-    // Remove test items
-    gameState.fallingItems = gameState.fallingItems.slice(0, -testFruits.length);
-    gameState.obstacles = gameState.obstacles.slice(0, -obstacleTypes.length);
-    console.log("Test rendering complete - items removed");
-  }, 5000);
-  
-  return "Rendering test in progress - check game canvas for results";
-}
-
-// Make test available in the window object
-window.testRenderingImprovements = testRenderingImprovements; 
-
-// Function to initiate screen shake
-function startScreenShake(intensity, duration) {
-  screenShake.active = true;
-  screenShake.intensity = intensity;
-  screenShake.duration = duration;
-  screenShake.timeLeft = duration;
+  // Request next frame
+  animationFrame = requestAnimationFrame(animate);
 }
 
 // Update screen shake effect with frame rate independence
@@ -3848,13 +2221,16 @@ function updateScreenShake(deltaTime) {
     
     if (screenShake.timeLeft <= 0) {
       screenShake.active = false;
-      canvas.style.transform = 'translate(0px, 0px)';
-    } else {
-      const intensity = screenShake.intensity * (screenShake.timeLeft / screenShake.duration);
-      const xShake = (Math.random() * 2 - 1) * intensity;
-      const yShake = (Math.random() * 2 - 1) * intensity;
-      canvas.style.transform = `translate(${xShake}px, ${yShake}px)`;
+      canvas.style.transform = ''; // Reset transform
+      return;
     }
+    
+    const intensity = screenShake.intensity * (screenShake.timeLeft / screenShake.duration);
+    const offsetX = (Math.random() * 2 - 1) * intensity;
+    const offsetY = (Math.random() * 2 - 1) * intensity;
+    
+    // Apply transform directly to the canvas element
+    canvas.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
   }
 }
 
@@ -4003,33 +2379,7 @@ window.addEventListener("resize", function() {
 });
 
 // Also update level position whenever game speed is changed
-function updateSpeedLabel() {
-  const speedLabel = document.getElementById("speedLabel");
-  if (speedLabel) {
-    let speedText = "Normal";
-    if (gameState.gameSpeed < 0.75) speedText = "Very Slow";
-    else if (gameState.gameSpeed < 1.0) speedText = "Slow";
-    else if (gameState.gameSpeed > 1.5) speedText = "Very Fast";
-    else if (gameState.gameSpeed > 1.0) speedText = "Fast";
-    
-    speedLabel.innerText = `Speed: ${speedText}`;
-    
-    // Update level position after speed label changes
-    setTimeout(() => {
-      const levelElement = document.getElementById("level");
-      const speedControls = document.getElementById("speedControls");
-      
-      if (levelElement && speedControls) {
-        // Get position of speed controls
-        const speedRect = speedControls.getBoundingClientRect();
-        
-        // Move level display below speed controls
-        levelElement.style.top = (speedRect.bottom + 10) + "px";
-        levelElement.style.right = "10px";
-      }
-    }, 50);
-  }
-}
+// Removed duplicate function definition to prevent conflicts
 
 // Create a dedicated heart explosion effect function for the extraLife powerup
 function createHeartExplosion() {
@@ -4223,116 +2573,623 @@ function createBasketShrinkEffect() {
 
 // Modify the drawBasket function to show damage flash effect
 function drawBasket() {
-  const shadowOffset = 5;
-  const basketDepth = 15;
-  const glowIntensity = gameState.hasActivePowerup ? 15 : 0;
+  ctx.save();
+  ctx.translate(basket.x + basket.width / 2, basket.y + basket.height / 2);
+  ctx.rotate(basket.rotation);
   
-  // First draw the shadow basket if doubleTrouble is active
-  if (gameState.hasActivePowerup && gameState.activePowerupType === "doubleTrouble" && gameState.shadowBasket) {
-    // ... existing shadow basket code ...
+  // Choose basket style based on user selection
+  switch(basket.style) {
+    case 'futuristic':
+      drawFuturisticBasket();
+      break;
+    case 'cute':
+      drawCuteBasket();
+      break;
+    case 'box':
+      drawBoxBasket();
+      break;
+    case 'hat':
+      drawHatBasket();
+      break;
+    default:
+      drawClassicBasket();
+      break;
   }
   
-  // Now draw the main basket
-  // Shadow
-  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+  ctx.restore();
+  
+  // Add shadow beneath basket for 3D effect
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
   ctx.beginPath();
-  ctx.moveTo(basket.x + shadowOffset, basket.y + shadowOffset);
-  ctx.lineTo(basket.x + basket.width + shadowOffset, basket.y + shadowOffset);
-  ctx.lineTo(basket.x + basket.width + shadowOffset, basket.y + basket.height + shadowOffset);
-  ctx.lineTo(basket.x + shadowOffset, basket.y + basket.height + shadowOffset);
-  ctx.closePath();
+  ctx.ellipse(
+    basket.x + basket.width/2, 
+    basket.y + basket.height + 10, 
+    basket.width/2 * 0.8, 
+    basket.height/4 * 0.5, 
+    0, 0, Math.PI * 2
+  );
   ctx.fill();
+}
+
+// Classic wicker basket style
+function drawClassicBasket() {
+  // Base basket shape - 3D effect with depth
+  ctx.fillStyle = basket.powerupActive ? getPowerupBasketColor() : basket.color;
   
-  // Draw 3D sides
-  
-  // Right side - darker
+  // Bottom of basket (3D effect)
   ctx.fillStyle = basket.tertiaryColor;
   ctx.beginPath();
-  ctx.moveTo(basket.x + basket.width, basket.y);
-  ctx.lineTo(basket.x + basket.width + basketDepth, basket.y + basketDepth);
-  ctx.lineTo(basket.x + basket.width + basketDepth, basket.y + basket.height + basketDepth);
-  ctx.lineTo(basket.x + basket.width, basket.y + basket.height);
+  ctx.moveTo(-basket.width/2, basket.height/2);
+  ctx.lineTo(-basket.width/2 + basket.depth, basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2 - basket.depth, basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2, basket.height/2);
   ctx.closePath();
   ctx.fill();
   
-  // Bottom side
-  ctx.fillStyle = darkenColor(basket.color, 30);
+  // Front face of basket
+  ctx.fillStyle = basket.powerupActive ? getPowerupBasketColor() : basket.color;
+  ctx.fillRect(-basket.width/2, -basket.height/2, basket.width, basket.height);
+  
+  // Right side of basket (3D)
+  ctx.fillStyle = basket.secondaryColor;
   ctx.beginPath();
-  ctx.moveTo(basket.x, basket.y + basket.height);
-  ctx.lineTo(basket.x + basketDepth, basket.y + basket.height + basketDepth);
-  ctx.lineTo(basket.x + basket.width + basketDepth, basket.y + basket.height + basketDepth);
-  ctx.lineTo(basket.x + basket.width, basket.y + basket.height);
+  ctx.moveTo(basket.width/2, -basket.height/2);
+  ctx.lineTo(basket.width/2 - basket.depth, -basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2 - basket.depth, basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2, basket.height/2);
   ctx.closePath();
   ctx.fill();
   
-  // Main basket face with metallic gradient
-  const basketGradient = ctx.createLinearGradient(
-    basket.x, basket.y, 
-    basket.x + basket.width, basket.y + basket.height
-  );
+  // Top of basket (3D)
+  ctx.fillStyle = basket.powerupActive ? getDarkerPowerupColor() : darkenColor(basket.color, 20);
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, -basket.height/2);
+  ctx.lineTo(-basket.width/2 + basket.depth, -basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2 - basket.depth, -basket.height/2 - basket.depth);
+  ctx.lineTo(basket.width/2, -basket.height/2);
+  ctx.closePath();
+  ctx.fill();
   
-  // Change gradient based on powerup status or damage flash
-  if (basket.damageFlash) {
-    // Red gradient for damage
-    basketGradient.addColorStop(0, "#ff5555");
-    basketGradient.addColorStop(0.5, "#ff3030");
-    basketGradient.addColorStop(1, "#cc0000");
-    
-    // Add red glow effect when damaged
-    ctx.shadowColor = "#ff0000";
-    ctx.shadowBlur = 20;
-  } else if (gameState.hasActivePowerup) {
-    const powerupColor = powerupTypes.find(p => p.type === gameState.activePowerupType)?.color || basket.color;
-    basketGradient.addColorStop(0, lightenColor(powerupColor, 20));
-    basketGradient.addColorStop(0.5, powerupColor);
-    basketGradient.addColorStop(1, darkenColor(powerupColor, 20));
-    
-    // Add glow effect when powerup is active
-    ctx.shadowColor = powerupColor;
-    ctx.shadowBlur = glowIntensity;
-  } else {
-    basketGradient.addColorStop(0, lightenColor(basket.color, 20));
-    basketGradient.addColorStop(0.5, basket.color);
-    basketGradient.addColorStop(1, darkenColor(basket.color, 20));
+  // Wicker pattern horizontal lines
+  const lineCount = 5;
+  const lineSpacing = basket.height / (lineCount + 1);
+  
+  ctx.strokeStyle = basket.powerupActive ? getLighterPowerupColor() : lightenColor(basket.color, 10);
+  ctx.lineWidth = 2;
+  
+  for (let i = 1; i <= lineCount; i++) {
+    const y = -basket.height/2 + i * lineSpacing;
+    ctx.beginPath();
+    ctx.moveTo(-basket.width/2, y);
+    ctx.lineTo(basket.width/2, y);
+    ctx.stroke();
   }
   
-  ctx.fillStyle = basketGradient;
-  ctx.fillRect(basket.x, basket.y, basket.width, basket.height);
+  // Wicker pattern vertical lines
+  const vertLineCount = 8;
+  const vertLineSpacing = basket.width / (vertLineCount + 1);
   
-  // Reset shadow
-  ctx.shadowBlur = 0;
+  for (let i = 1; i <= vertLineCount; i++) {
+    const x = -basket.width/2 + i * vertLineSpacing;
+    ctx.beginPath();
+    ctx.moveTo(x, -basket.height/2);
+    ctx.lineTo(x, basket.height/2);
+    ctx.stroke();
+  }
   
-  // Rest of the drawBasket function remains the same
+  // Handle
+  ctx.strokeStyle = basket.powerupActive ? getDarkerPowerupColor() : basket.tertiaryColor;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.arc(0, -basket.height/2 - 20, basket.width/3, 0, Math.PI, true);
+  ctx.stroke();
 }
 
-// Update the obstacle collision code in the gameLoop function
-// Replace the section after "// Deduct points and life"
-// Deduct points and life
-gameState.score = Math.max(0, gameState.score - obstacle.points * 5);
-gameState.lives--;
-
-// AI FEATURE: Shrink the basket when player loses a life
-// Only if not already using giant powerup
-if (!gameState.hasActivePowerup || gameState.activePowerupType !== "giant") {
-  // Store original dimensions for reference
-  const originalWidth = 80;
-  const originalHeight = 60;
+// Futuristic spaceship-style basket
+function drawFuturisticBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#4686FF";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#00D1FF";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#1A3A75";
   
-  // Calculate new size based on remaining lives (3 = 100%, 2 = 80%, 1 = 65%)
-  const sizeFactors = [0.65, 0.8, 1.0];
-  const sizeFactor = sizeFactors[gameState.lives - 1] || 0.65;
+  // Main body
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, 0);
+  ctx.lineTo(-basket.width/2 + 10, -basket.height/2);
+  ctx.lineTo(basket.width/2 - 10, -basket.height/2);
+  ctx.lineTo(basket.width/2, 0);
+  ctx.lineTo(basket.width/2 - 15, basket.height/2);
+  ctx.lineTo(-basket.width/2 + 15, basket.height/2);
+  ctx.closePath();
+  ctx.fill();
   
-  // Update basket dimensions
-  basket.width = originalWidth * sizeFactor;
-  basket.height = originalHeight * sizeFactor;
+  // Bottom shadow
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2 + 15, basket.height/2);
+  ctx.lineTo(basket.width/2 - 15, basket.height/2);
+  ctx.lineTo(basket.width/2 - 20, basket.height/2 - 10);
+  ctx.lineTo(-basket.width/2 + 20, basket.height/2 - 10);
+  ctx.closePath();
+  ctx.fill();
   
-  // Create visual effect for basket shrinking
-  createBasketShrinkEffect();
+  // Cockpit/dome
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.arc(0, -basket.height/4, basket.width/4, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Dome highlight
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.beginPath();
+  ctx.arc(-5, -basket.height/4 - 5, basket.width/8, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Side thrusters
+  ctx.fillStyle = darkColor;
+  ctx.fillRect(-basket.width/2 - 10, -5, 12, 10);
+  ctx.fillRect(basket.width/2 - 2, -5, 12, 10);
+  
+  // Thruster glow effect
+  if (Math.random() > 0.5) {
+    ctx.fillStyle = 'rgba(255, 165, 0, 0.8)';
+    ctx.beginPath();
+    ctx.moveTo(-basket.width/2 - 10, 0);
+    ctx.lineTo(-basket.width/2 - 20, 5);
+    ctx.lineTo(-basket.width/2 - 20, -5);
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.moveTo(basket.width/2 + 10, 0);
+    ctx.lineTo(basket.width/2 + 20, 5);
+    ctx.lineTo(basket.width/2 + 20, -5);
+    ctx.fill();
+  }
+  
+  // Detail lines
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/3, basket.height/4);
+  ctx.lineTo(basket.width/3, basket.height/4);
+  ctx.stroke();
+  
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/4, basket.height/2 - 5);
+  ctx.lineTo(basket.width/4, basket.height/2 - 5);
+  ctx.stroke();
 }
 
-// Create particles for obstacle hit
-createParticles(obstacle.x + obstacle.size/2, obstacle.y + obstacle.size/2, obstacle.color, 15);
+// Cute teddy bear basket style
+function drawCuteBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#BA8E6D";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#8B5A2B";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#E8C19D";
+  
+  // Main body (bear shape)
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(0, 0, basket.width/2 - 5, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Ears
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.arc(-basket.width/3, -basket.height/2 + 5, basket.width/6, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/3, -basket.height/2 + 5, basket.width/6, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Inner ears
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.arc(-basket.width/3, -basket.height/2 + 5, basket.width/10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/3, -basket.height/2 + 5, basket.width/10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Eyes
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.arc(-basket.width/6, -basket.height/8, basket.width/14, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/6, -basket.height/8, basket.width/14, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Eye highlights
+  ctx.fillStyle = 'white';
+  ctx.beginPath();
+  ctx.arc(-basket.width/6 + 2, -basket.height/8 - 2, basket.width/25, 0, Math.PI * 2);
+  ctx.fill();
+  
+  ctx.beginPath();
+  ctx.arc(basket.width/6 + 2, -basket.height/8 - 2, basket.width/25, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Nose
+  ctx.fillStyle = '#FF9999';
+  ctx.beginPath();
+  ctx.arc(0, 0, basket.width/10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Mouth
+  ctx.strokeStyle = darkColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, basket.height/8, basket.width/5, 0.2, Math.PI - 0.2);
+  ctx.stroke();
+  
+  // Basket opening/hollow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.beginPath();
+  ctx.arc(0, basket.height/6, basket.width/3, 0, Math.PI * 2);
+  ctx.fill();
+}
 
-// Add screen shake effect based on obstacle type
-const shakeIntensity = obstacle.points * 3 + 3; // More points = stronger shake
-startScreenShake(shakeIntensity, 300); // 300ms shake duration
+// Box basket style
+function drawBoxBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#A67C52";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#C69C6D";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#7D5A3C";
+  
+  // Main box
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(-basket.width/2, -basket.height/2, basket.width, basket.height);
+  
+  // Box top flaps
+  ctx.fillStyle = accentColor;
+  
+  // Left flap
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, -basket.height/2);
+  ctx.lineTo(-basket.width/6, -basket.height/2 - basket.height/4);
+  ctx.lineTo(0, -basket.height/2);
+  ctx.lineTo(-basket.width/2, -basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Right flap
+  ctx.beginPath();
+  ctx.moveTo(basket.width/2, -basket.height/2);
+  ctx.lineTo(basket.width/6, -basket.height/2 - basket.height/4);
+  ctx.lineTo(0, -basket.height/2);
+  ctx.lineTo(basket.width/2, -basket.height/2);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Box details - tape
+  ctx.strokeStyle = darkColor;
+  ctx.lineWidth = 4;
+  
+  // Horizontal tape
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/2, 0);
+  ctx.lineTo(basket.width/2, 0);
+  ctx.stroke();
+  
+  // Vertical tape
+  ctx.beginPath();
+  ctx.moveTo(0, -basket.height/2);
+  ctx.lineTo(0, basket.height/2);
+  ctx.stroke();
+  
+  // Box inner shadow for depth
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.fillRect(-basket.width/2 + 5, -basket.height/2 + 5, basket.width - 10, basket.height - 10);
+  
+  // Box edge highlights
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-basket.width/2, -basket.height/2, basket.width, basket.height);
+  
+  // Optional box label
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.font = Math.floor(basket.width/10) + 'px Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText("CATCH", 0, basket.height/4);
+}
+
+// Hat basket style
+function drawHatBasket() {
+  const baseColor = basket.powerupActive ? getPowerupBasketColor() : "#2C3E50";
+  const accentColor = basket.powerupActive ? getLighterPowerupColor() : "#34495E";
+  const darkColor = basket.powerupActive ? getDarkerPowerupColor() : "#1B2631";
+  
+  // Hat brim
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.ellipse(0, basket.height/3, basket.width/2, basket.height/6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Hat body (cylinder)
+  ctx.fillStyle = baseColor;
+  ctx.beginPath();
+  ctx.ellipse(0, -basket.height/3, basket.width/3, basket.height/10, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Connect the top and bottom of hat
+  ctx.beginPath();
+  ctx.moveTo(-basket.width/3, -basket.height/3);
+  ctx.lineTo(-basket.width/3, basket.height/3);
+  ctx.lineTo(basket.width/3, basket.height/3);
+  ctx.lineTo(basket.width/3, -basket.height/3);
+  ctx.closePath();
+  ctx.fill();
+  
+  // Hat band
+  ctx.fillStyle = accentColor;
+  ctx.beginPath();
+  ctx.rect(-basket.width/3, -basket.height/6, basket.width*2/3, basket.height/10);
+  ctx.fill();
+  
+  // Hat band decoration
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.beginPath();
+  ctx.ellipse(basket.width/6, -basket.height/6 + basket.height/20, basket.width/12, basket.height/20, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Inside of the hat (hollow for catching)
+  ctx.fillStyle = darkColor;
+  ctx.beginPath();
+  ctx.ellipse(0, -basket.height/3, basket.width/4, basket.height/12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Hat shine effect
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, -basket.height/3, basket.width/3.5, basket.height/11, 0, Math.PI * 0.3, Math.PI * 0.7);
+  ctx.stroke();
+}
+
+// Helper function to get color based on active powerup
+function getPowerupBasketColor() {
+  if (gameState.hasActivePowerup && gameState.activePowerupType) {
+    const powerupInfo = powerupTypes.find(p => p.type === gameState.activePowerupType);
+    return powerupInfo ? powerupInfo.color : basket.color;
+  }
+  return basket.color;
+}
+
+function getLighterPowerupColor() {
+  if (gameState.hasActivePowerup && gameState.activePowerupType) {
+    const powerupInfo = powerupTypes.find(p => p.type === gameState.activePowerupType);
+    return powerupInfo ? lightenColor(powerupInfo.color, 30) : lightenColor(basket.color, 30);
+  }
+  return lightenColor(basket.color, 30);
+}
+
+function getDarkerPowerupColor() {
+  if (gameState.hasActivePowerup && gameState.activePowerupType) {
+    const powerupInfo = powerupTypes.find(p => p.type === gameState.activePowerupType);
+    return powerupInfo ? darkenColor(powerupInfo.color, 30) : darkenColor(basket.color, 30);
+  }
+  return darkenColor(basket.color, 30);
+}
+
+// ... existing code ...
+
+// Function to apply the selected theme
+function applyTheme(theme) {
+  // If options.js has loaded and defined themeOptions, use that implementation
+  if (typeof window.applyTheme === 'function' && window.applyTheme !== applyTheme) {
+    return window.applyTheme(theme);
+  }
+  
+  // Get the theme definition from options.js
+  const themeOption = (typeof themeOptions !== 'undefined' && themeOptions) 
+    ? themeOptions.find(t => t.id === theme) || themeOptions[0]
+    : {
+        id: theme,
+        gradient: theme === 'ocean' 
+          ? 'linear-gradient(45deg, #141E30, #243B55, #0575E6)' 
+          : theme === 'forest' 
+            ? 'linear-gradient(45deg, #134E5E, #71B280, #2C5364)'
+            : theme === 'sunset'
+              ? 'linear-gradient(45deg, #f12711, #f5af19, #FF8008)'
+              : theme === 'neon'
+                ? 'linear-gradient(45deg, #0a0047, #490066, #8E2DE2)'
+                : 'linear-gradient(45deg, #1a2a6c, #b21f1f, #fdbb2d)',
+        stars: 'rgba(255, 255, 255, 0.8)',
+        nebulaColors: 'radial-gradient(circle at 20% 35%, rgba(142, 68, 173, 0.2) 0%, transparent 40%), radial-gradient(circle at 80% 20%, rgba(41, 128, 185, 0.2) 0%, transparent 40%), radial-gradient(circle at 50% 80%, rgba(192, 57, 43, 0.2) 0%, transparent 50%)'
+      };
+  
+  // Apply the gradient to the body
+  document.body.style.background = themeOption.gradient;
+  document.body.style.backgroundSize = '400% 400%';
+  
+  // Update stars (parallax background)
+  const starsStyle = `
+    radial-gradient(2px 2px at 20% 30%, ${themeOption.stars} 0%, transparent 100%),
+    radial-gradient(2px 2px at 40% 70%, ${themeOption.stars} 0%, transparent 100%),
+    radial-gradient(3px 3px at 50% 15%, ${themeOption.stars} 0%, transparent 100%),
+    radial-gradient(2px 2px at 60% 50%, ${themeOption.stars} 0%, transparent 100%),
+    radial-gradient(3px 3px at 70% 90%, ${themeOption.stars} 0%, transparent 100%),
+    radial-gradient(2px 2px at 85% 25%, ${themeOption.stars} 0%, transparent 100%),
+    radial-gradient(3px 3px at 90% 65%, ${themeOption.stars} 0%, transparent 100%)
+  `;
+  
+  // Update the body::before (stars background)
+  updatePseudoElementStyle('body::before', `
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: ${starsStyle};
+    background-repeat: repeat;
+    background-size: 500px 500px;
+    transform: translateZ(0);
+    animation: movingStars 60s linear infinite;
+    z-index: -1;
+  `);
+  
+  // Update nebula overlay
+  updatePseudoElementStyle('body::after', `
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: ${themeOption.nebulaColors};
+    mix-blend-mode: screen;
+    z-index: -1;
+    animation: nebulaMove 30s ease infinite alternate;
+  `);
+  
+  // Store the chosen theme
+  localStorage.setItem('gameTheme', theme);
+  customizations.theme = theme;
+  
+  return themeOption;
+}
+
+// Helper function to update pseudo element styles
+function updatePseudoElementStyle(selector, cssText) {
+  // Check if a style for this selector already exists
+  let styleElement = document.getElementById(`style-${selector.replace(/[^a-z0-9]/gi, '')}`);
+  
+  if (!styleElement) {
+    // Create a new style element if it doesn't exist
+    styleElement = document.createElement('style');
+    styleElement.id = `style-${selector.replace(/[^a-z0-9]/gi, '')}`;
+    document.head.appendChild(styleElement);
+  }
+  
+  // Update the style content
+  styleElement.innerHTML = `${selector} { ${cssText} }`;
+}
+
+// Function to properly initialize the game for the current device
+function initializeGameForDevice() {
+  // Optimize canvas for device pixel ratio
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = `${rect.width}px`;
+  canvas.style.height = `${rect.height}px`;
+  ctx.scale(dpr, dpr);
+  
+  // Enable hardware acceleration
+  canvas.style.transform = 'translateZ(0)';
+  canvas.style.willChange = 'transform';
+  
+  // Optimize context
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  
+  // Mobile device handling
+  if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+    setupMobileOptimizations();
+  } else {
+    setupDesktopOptimizations();
+  }
+  
+  // Performance mode settings
+  const isLowPerformance = checkDevicePerformance();
+  if (isLowPerformance) {
+    enablePerformanceMode();
+  }
+  
+  // Initialize smooth animation loop
+  gameState.then = Date.now();
+  gameState.startTime = gameState.then;
+  
+  // Set up the animation frame request
+  if (gameState.useRAF) {
+    window.requestAnimationFrame = (
+      window.requestAnimationFrame ||
+      window.webkitRequestAnimationFrame ||
+      window.mozRequestAnimationFrame ||
+      function(callback) {
+        window.setTimeout(callback, 1000 / 60);
+      }
+    );
+  }
+}
+
+function setupMobileOptimizations() {
+  const mobileControls = document.getElementById('mobileControls') || setupMobileControls();
+  mobileControls.style.display = "flex";
+  
+  canvas.addEventListener('touchmove', throttle(touchMoveBasket, 16), { passive: true });
+  canvas.addEventListener('touchstart', touchMoveBasket, { passive: true });
+  
+  updateMobileInstructions();
+  setupOrientationHandler();
+  optimizeScrolling();
+}
+
+function setupDesktopOptimizations() {
+  document.getElementById("mobile-control-hint").style.display = "none";
+  document.getElementById("desktop-control-hint").style.display = "inline-block";
+  
+  // Optimize keyboard input
+  window.addEventListener('keydown', throttle(handleKeyDown, 16));
+  window.addEventListener('keyup', handleKeyUp);
+}
+
+function checkDevicePerformance() {
+  const isLowPerformance = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  return isLowPerformance || !window.requestAnimationFrame;
+}
+
+function enablePerformanceMode() {
+  console.log("Enabling performance optimizations");
+  gameState.performanceMode = true;
+  gameState.fpsInterval = 1000 / 30; // Reduce to 30 FPS
+  gameState.smoothing = 0.6; // Reduce smoothing
+  reduceVisualEffects();
+}
+
+function throttle(func, limit) {
+  let inThrottle;
+  return function(...args) {
+    if (!inThrottle) {
+      func.apply(this, args);
+      inThrottle = true;
+      setTimeout(() => inThrottle = false, limit);
+    }
+  };
+}
+
+function reduceVisualEffects() {
+  // Reduce particle count
+  gameState.maxParticles = 15;
+  // Simplify animations
+  gameState.useSimpleAnimations = true;
+}
+
+// Call initialize function when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeGameForDevice);
+} else {
+  initializeGameForDevice();
+}
+
+// Also call it when the options button is clicked
+document.addEventListener('DOMContentLoaded', function() {
+  const optionsBtn = document.getElementById('optionsBtn');
+  if (optionsBtn) {
+    optionsBtn.addEventListener('click', function() {
+      setTimeout(initializeGameForDevice, 100);
+    });
+  }
+  
+  const startGameBtn = document.getElementById('startGameBtn');
+  if (startGameBtn) {
+    startGameBtn.addEventListener('click', function() {
+      setTimeout(initializeGameForDevice, 100);
+    });
+  }
+});
