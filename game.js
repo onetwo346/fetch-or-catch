@@ -3465,6 +3465,17 @@ window.addEventListener('load', function() {
     };
   }
   
+  // Add event listener for Play Again button in game over screen
+  const playAgainBtn = document.getElementById('playAgainBtn');
+  if (playAgainBtn) {
+    playAgainBtn.onclick = () => {
+      playSound('button');
+      gameOverScreen.classList.remove('show');
+      gameOverScreen.style.display = 'none';
+      restartGame();
+    };
+  }
+  
   // Add keyboard controls
   document.addEventListener('keydown', (event) => {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
