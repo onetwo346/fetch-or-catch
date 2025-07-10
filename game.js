@@ -2,10 +2,16 @@
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const intro = document.getElementById("intro");
+const optionsPage = document.getElementById("optionsPage");
 const controls = document.getElementById("controls");
 const gameInterface = document.getElementById("gameInterface");
 const levelUpScreen = document.getElementById("levelUp");
 const gameOverScreen = document.getElementById("gameOver");
+
+// Options page elements
+const enterOptionsBtn = document.getElementById("enterOptionsBtn");
+const backToIntroBtn = document.getElementById("backToIntroBtn");
+const startGameBtn = document.getElementById("startGameBtn");
 
 // Add screen shake variables
 let screenShake = {
@@ -13,6 +19,75 @@ let screenShake = {
   intensity: 0,
   duration: 0,
   timeLeft: 0
+};
+
+// Game customization settings
+let gameSettings = {
+  selectedTheme: 'ocean',
+  selectedBasket: 'classic'
+};
+
+// Theme configurations
+const themes = {
+  ocean: {
+    background: 'linear-gradient(135deg, #87CEEB, #3498db, #2980b9, #1abc9c)',
+    canvasBg: 'linear-gradient(to bottom, #e0f7ff, #d8f3ff)',
+    borderColor: '#3498db'
+  },
+  forest: {
+    background: 'linear-gradient(135deg, #27ae60, #2ecc71, #16a085, #1abc9c)',
+    canvasBg: 'linear-gradient(to bottom, #e8f5e8, #d4f1d4)',
+    borderColor: '#27ae60'
+  },
+  sunset: {
+    background: 'linear-gradient(135deg, #e67e22, #f39c12, #e74c3c, #c0392b)',
+    canvasBg: 'linear-gradient(to bottom, #fff5e6, #ffe6cc)',
+    borderColor: '#e67e22'
+  },
+  space: {
+    background: 'linear-gradient(135deg, #9b59b6, #8e44ad, #6c5ce7, #a29bfe)',
+    canvasBg: 'linear-gradient(to bottom, #f0e6ff, #e6d9ff)',
+    borderColor: '#9b59b6'
+  },
+  candy: {
+    background: 'linear-gradient(135deg, #fd79a8, #fdcb6e, #e84393, #ff7675)',
+    canvasBg: 'linear-gradient(to bottom, #ffe6f0, #ffd9e6)',
+    borderColor: '#fd79a8'
+  }
+};
+
+// Basket configurations
+const baskets = {
+  classic: {
+    color: "#d4a574",
+    secondaryColor: "#cd853f",
+    tertiaryColor: "#8b4513",
+    style: "classic"
+  },
+  modern: {
+    color: "#3498db",
+    secondaryColor: "#2980b9",
+    tertiaryColor: "#1a5276",
+    style: "modern"
+  },
+  rustic: {
+    color: "#8b4513",
+    secondaryColor: "#a0522d",
+    tertiaryColor: "#654321",
+    style: "rustic"
+  },
+  futuristic: {
+    color: "#00bcd4",
+    secondaryColor: "#0097a7",
+    tertiaryColor: "#006064",
+    style: "futuristic"
+  },
+  magical: {
+    color: "#9b59b6",
+    secondaryColor: "#8e44ad",
+    tertiaryColor: "#6c5ce7",
+    style: "magical"
+  }
 };
 
 // Sound system with fallback
@@ -1996,38 +2071,29 @@ function touchMoveBasket(event) {
 // Update game interface
 function updateUI() {
   document.getElementById("score").innerText = `Score: ${gameState.score}`;
-  document.getElementById("level").innerHTML = `Level: ${gameState.level} 🏆`;
+  document.getElementById("level").innerText = `Level: ${gameState.level}`;
   
-  // Update lives with heart icons
-  const livesElement = document.getElementById("lives");
-  let heartsHTML = '';
-  for (let i = 0; i < gameState.lives; i++) {
-    heartsHTML += '❤️';
+  // Update lives display with proper spacing
+  const livesDisplay = document.getElementById("lives");
+  if (livesDisplay) {
+    let heartsHTML = 'Lives: ';
+    for (let i = 0; i < gameState.lives; i++) {
+      heartsHTML += '<span style="margin-right: 5px;">❤️</span>';
+    }
+    livesDisplay.innerHTML = heartsHTML;
   }
-  for (let i = 0; i < 3 - gameState.lives; i++) {
-    heartsHTML += '🖤';
-  }
-  livesElement.innerHTML = `Lives: ${heartsHTML}`;
   
   // Update progress bar
-  const targetScore = levelConfig[Math.min(gameState.level - 1, levelConfig.length - 1)].targetScore;
-  const progress = Math.min(100, (gameState.score / targetScore) * 100);
-  document.getElementById("progressBar").style.width = `${progress}%`;
+  const progress = (gameState.score / gameState.targetScore) * 100;
+  document.getElementById("progressBar").style.width = `${Math.min(100, progress)}%`;
   
-  // Update powerup display
-  const powerupElement = document.getElementById("powerup");
+  // Update powerup display if active
+  const powerupDisplay = document.getElementById("powerup");
   if (gameState.hasActivePowerup) {
-    powerupElement.classList.remove("hidden");
-    const emoji = powerupTypes.find(p => p.type === gameState.activePowerupType)?.emoji || '';
-    powerupElement.innerHTML = `PowerUp: ${gameState.activePowerupType} <span class="powerup-emoji">${emoji}</span> (${Math.ceil(gameState.powerupTimeLeft / 1000)}s)`;
-    
-    if (gameState.powerupTimeLeft < 3000) {
-      powerupElement.classList.add("flashing");
-    } else {
-      powerupElement.classList.remove("flashing");
-    }
+    powerupDisplay.classList.remove("hidden");
+    powerupDisplay.innerText = `PowerUp: ${gameState.activePowerupType}`;
   } else {
-    powerupElement.classList.add("hidden");
+    powerupDisplay.classList.add("hidden");
   }
 }
 
@@ -3098,7 +3164,7 @@ function startGame() {
   
   // Reset UI
   updateUI();
-  intro.style.display = "none";
+  optionsPage.classList.add('hidden');
   canvas.style.display = "block";
   controls.style.display = "flex";
   gameInterface.style.display = "block";
@@ -3106,6 +3172,10 @@ function startGame() {
   levelUpScreen.classList.remove("show");
   gameOverScreen.style.display = "none";
   gameOverScreen.classList.remove("show");
+  
+  // Apply selected theme and basket
+  applyTheme(gameSettings.selectedTheme);
+  applyBasket(gameSettings.selectedBasket);
   
   // Make sure speed controls exist
   if (!document.getElementById("speedControls")) {
@@ -3270,7 +3340,8 @@ function quitGame() {
   canvas.style.display = "none";
   controls.style.display = "none";
   gameInterface.style.display = "none";
-  intro.style.display = "flex";
+  optionsPage.classList.add('hidden');
+  intro.classList.remove('hidden');
   
   document.getElementById("score").innerText = "Score: 0";
   document.getElementById("level").innerText = "Level: 1";
@@ -3301,60 +3372,7 @@ function toggleMute() {
   playSound("button");
 }
 
-// Event Listeners
-document.getElementById("startGameBtn").addEventListener("click", function() {
-  playSound("button");
-  startGame();
-});
-document.getElementById("startGameBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  startGame();
-});
-document.getElementById("restartBtn").addEventListener("click", function() {
-  playSound("button");
-  restartGame();
-});
-document.getElementById("restartBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  restartGame();
-});
-// Sound effect handled inside pauseGame function
-document.getElementById("pauseBtn").addEventListener("click", pauseGame);
-document.getElementById("pauseBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  pauseGame();
-});
-// Sound effect handled inside quitGame function
-document.getElementById("quitBtn").addEventListener("click", quitGame);
-document.getElementById("quitBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  quitGame();
-});
-document.getElementById("playAgainBtn").addEventListener("click", function() {
-  playSound("button");
-  restartGame();
-});
-document.getElementById("playAgainBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  restartGame();
-});
-document.getElementById("muteBtn").addEventListener("click", toggleMute);
-document.getElementById("muteBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  toggleMute();
-});
-document.getElementById("nextLevelBtn").addEventListener("click", function() {
-  playSound("button");
-  continueToNextLevel();
-});
-document.getElementById("nextLevelBtn").addEventListener("touchstart", function(e) {
-  e.preventDefault();
-  playSound("button");
-  continueToNextLevel();
-});
+// Event Listeners - These will be set up in DOMContentLoaded to avoid conflicts
 
 window.addEventListener("keydown", moveBasket);
 canvas.addEventListener("touchmove", touchMoveBasket);
@@ -3388,117 +3406,83 @@ canvas.addEventListener('contextmenu', function(e) {
 
 // Initialize the game when the page loads
 window.addEventListener('load', function() {
-  console.log("Game initialized");
   // Initialize canvas size
   canvas.width = 400;
   canvas.height = 600;
   
-  // Show intro and handle UI
-  intro.style.display = "flex";
+  // Show intro and hide other screens
+  intro.classList.remove('hidden');
+  optionsPage.classList.add('hidden');
   canvas.style.display = "none";
   controls.style.display = "none";
   gameInterface.style.display = "none";
   
-  // Make sure all UI elements are in the correct state
+  // Initialize UI elements
   document.getElementById("score").innerText = "Score: 0";
   document.getElementById("level").innerText = "Level: 1";
   
-  // Initialize hearts for lives display
-  document.getElementById("lives").innerHTML = "Lives: ❤️❤️❤️";
+  // Style the lives display
+  const livesDisplay = document.getElementById("lives");
+  if (livesDisplay) {
+    livesDisplay.style.display = "flex";
+    livesDisplay.style.alignItems = "center";
+    livesDisplay.style.gap = "5px";
+    livesDisplay.style.padding = "5px 10px";
+    livesDisplay.innerHTML = 'Lives: <span style="margin-right: 5px;">❤️</span><span style="margin-right: 5px;">❤️</span><span style="margin-right: 5px;">❤️</span>';
+  }
   
   document.getElementById("progressBar").style.width = "0%";
   document.getElementById("muteBtn").innerText = gameState.isMuted ? "🔇" : "🔊";
   
-  // Apply consistent styling to game UI elements
-  const uiElements = document.querySelectorAll('#gameInterface > div:not(#progressContainer)');
-  uiElements.forEach(element => {
-    element.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    element.style.color = "white";
-    element.style.border = "2px solid rgba(41, 128, 185, 0.9)";
-    element.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-    element.style.padding = "8px 12px";
-    element.style.borderRadius = "8px";
-    element.style.margin = "5px";
-    element.style.fontFamily = "'Arial', sans-serif";
-  });
+  // Set up game control buttons
+  const restartBtn = document.getElementById("restartBtn");
+  const pauseBtn = document.getElementById("pauseBtn");
+  const quitBtn = document.getElementById("quitBtn");
+  const muteBtn = document.getElementById("muteBtn");
   
-  // Style progress container
-  const progressContainer = document.getElementById("progressContainer");
-  if (progressContainer) {
-    progressContainer.style.backgroundColor = "rgba(236, 240, 241, 0.6)";
-    progressContainer.style.border = "2px solid rgba(41, 128, 185, 0.9)";
-    progressContainer.style.borderRadius = "10px";
-    progressContainer.style.overflow = "hidden";
+  if (restartBtn) {
+    restartBtn.onclick = () => {
+      playSound("button");
+      restartGame();
+    };
   }
   
-  // Style progress bar
-  const progressBar = document.getElementById("progressBar");
-  if (progressBar) {
-    progressBar.style.backgroundColor = "rgba(46, 204, 113, 0.8)";
-    progressBar.style.transition = "width 0.3s ease";
+  if (pauseBtn) {
+    pauseBtn.onclick = () => {
+      pauseGame();
+    };
   }
   
-  // Style game controls
-  const controlButtons = document.querySelectorAll('#controls button');
-  controlButtons.forEach(button => {
-    button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-    button.style.color = "white";
-    button.style.border = "2px solid rgba(41, 128, 185, 0.9)";
-    button.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.3)";
-    button.style.padding = "8px 16px";
-    button.style.borderRadius = "8px";
-    button.style.margin = "0 5px";
-    button.style.cursor = "pointer";
-    button.style.fontFamily = "'Arial', sans-serif";
-    button.style.fontSize = "16px";
-    button.style.transition = "all 0.2s ease";
-    
-    // Add hover effect
-    button.addEventListener('mouseover', () => {
-      button.style.backgroundColor = "rgba(41, 128, 185, 0.9)";
-      button.style.transform = "translateY(-2px)";
-    });
-    
-    button.addEventListener('mouseout', () => {
-      button.style.backgroundColor = "rgba(52, 152, 219, 0.8)";
-      button.style.transform = "translateY(0)";
-    });
-  });
+  if (quitBtn) {
+    quitBtn.onclick = () => {
+      quitGame();
+    };
+  }
   
-  // Preload sounds to avoid startup issues
-  try {
-    for (const sound in sounds) {
-      sounds[sound].load();
+  if (muteBtn) {
+    muteBtn.onclick = () => {
+      toggleMute();
+    };
+  }
+  
+  // Add keyboard controls
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      moveBasket(event);
+    } else if (event.key === 'm' || event.key === 'M') {
+      toggleMute();
+    } else if (event.key === 'p' || event.key === 'P') {
+      pauseGame();
     }
-  } catch (e) {
-    console.log("Error preloading sounds:", e);
-  }
+  });
   
-  // Setup mobile controls if on touch device
-  if ("ontouchstart" in window) {
+  // Set up mobile controls if needed
+  if ('ontouchstart' in window) {
     setupMobileControls();
-    document.getElementById("mobileControls").style.display = "flex";
-    
-    // Show the appropriate instructions in the intro
-    if (document.getElementById("mobile-control-hint")) {
-      document.getElementById("mobile-control-hint").style.display = "inline-block";
-      document.getElementById("desktop-control-hint").style.display = "none";
-    }
-  } else {
-    // Show desktop instructions
-    if (document.getElementById("desktop-control-hint")) {
-      document.getElementById("desktop-control-hint").style.display = "inline-block";
-      document.getElementById("mobile-control-hint").style.display = "none";
-    }
   }
   
-  // Add 3D lighting effect to intro
-  const lightingEffect = document.createElement("div");
-  lightingEffect.className = "lighting-effect";
-  document.getElementById("intro").appendChild(lightingEffect);
-  
-  // Ensure canvas is properly sized
-  resizeCanvas();
+  // Add speed controls
+  addSpeedControls();
 });
 
 // Setup mobile controls
@@ -4336,3 +4320,105 @@ createParticles(obstacle.x + obstacle.size/2, obstacle.y + obstacle.size/2, obst
 // Add screen shake effect based on obstacle type
 const shakeIntensity = obstacle.points * 3 + 3; // More points = stronger shake
 startScreenShake(shakeIntensity, 300); // 300ms shake duration
+
+// Options page functionality
+function showOptionsPage() {
+  intro.classList.add("hidden");
+  optionsPage.classList.remove("hidden");
+  
+  // Add event listeners for theme options
+  const themeOptions = document.querySelectorAll('.theme-option');
+  themeOptions.forEach(option => {
+    option.addEventListener('click', () => {
+      themeOptions.forEach(opt => opt.classList.remove('active'));
+      option.classList.add('active');
+      const selectedTheme = option.getAttribute('data-theme');
+      selectTheme(selectedTheme);
+    });
+  });
+
+  // Add event listeners for basket options
+  const basketOptions = document.querySelectorAll('.basket-option');
+  basketOptions.forEach(option => {
+    option.addEventListener('click', () => {
+      basketOptions.forEach(opt => opt.classList.remove('active'));
+      option.classList.add('active');
+      const selectedBasket = option.getAttribute('data-basket');
+      selectBasket(selectedBasket);
+    });
+  });
+
+  // Add event listeners for back and play buttons
+  const backBtn = document.getElementById('backToIntroBtn');
+  const playBtn = document.getElementById('startGameBtn');
+
+  if (backBtn) {
+    backBtn.onclick = () => {
+      optionsPage.classList.add('hidden');
+      intro.classList.remove('hidden');
+    };
+  }
+
+  if (playBtn) {
+    playBtn.onclick = () => {
+      optionsPage.classList.add('hidden');
+      intro.classList.add('hidden');
+      canvas.style.display = "block";
+      controls.style.display = "flex";
+      gameInterface.style.display = "block";
+      applyTheme(gameSettings.selectedTheme);
+      applyBasket(gameSettings.selectedBasket);
+      startGame();
+    };
+  }
+}
+
+function showIntroPage() {
+  optionsPage.classList.add('hidden');
+  intro.classList.remove('hidden');
+  playSound('button');
+}
+
+function selectTheme(themeName) {
+  if (themes[themeName]) {
+    gameSettings.selectedTheme = themeName;
+    applyTheme(themeName);
+    playSound('button'); // Add feedback sound
+  }
+}
+
+function selectBasket(basketName) {
+  if (baskets[basketName]) {
+    gameSettings.selectedBasket = basketName;
+    applyBasket(basketName);
+    playSound('button'); // Add feedback sound
+  }
+}
+
+function applyTheme(themeName) {
+  const theme = themes[themeName];
+  document.body.style.background = theme.background;
+  canvas.style.background = theme.canvasBg;
+  canvas.style.borderColor = theme.borderColor;
+}
+
+function applyBasket(basketName) {
+  const selectedBasket = baskets[basketName];
+  basket.color = selectedBasket.color;
+  basket.secondaryColor = selectedBasket.secondaryColor;
+  basket.tertiaryColor = selectedBasket.tertiaryColor;
+  basket.style = selectedBasket.style;
+}
+
+// Initialize options page
+document.addEventListener('DOMContentLoaded', () => {
+  // Set default selections
+  selectTheme('ocean');
+  selectBasket('classic');
+  
+  // Event listener for options button
+  const enterOptionsBtn = document.getElementById('enterOptionsBtn');
+  if (enterOptionsBtn) {
+    enterOptionsBtn.onclick = showOptionsPage;
+  }
+});

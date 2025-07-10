@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
+    <!-- Enhanced Intro Page -->
     <div id="intro">
       <div class="title-3d">FETCH or CATCH!</div>
       
@@ -36,7 +37,7 @@
         <p class="control-hint" id="mobile-control-hint">Tap ◀ ▶ to move</p>
       </div>
       
-      <button id="startGameBtn" class="button wobble">PLAY NOW!</button>
+      <button id="enterOptionsBtn" class="button wobble" onclick="showOptionsPage()">START ADVENTURE!</button>
       
       <!-- 3D effects -->
       <div class="floating-bomb">💣</div>
@@ -44,6 +45,73 @@
       <div class="corner-decor top-right">🍦</div>
       <div class="corner-decor bottom-left">🚀</div>
       <div class="corner-decor bottom-right">🎯</div>
+    </div>
+
+    <!-- New Options Page -->
+    <div id="optionsPage" class="hidden">
+      <div class="options-container">
+        <h2 class="options-title">🎨 CUSTOMIZE YOUR GAME</h2>
+        
+        <!-- Theme Selection -->
+        <div class="option-section">
+          <h3>🌍 Choose Your Theme</h3>
+          <div class="theme-grid">
+            <div class="theme-option active" data-theme="ocean">
+              <div class="theme-preview ocean-theme"></div>
+              <span>Ocean Blue</span>
+            </div>
+            <div class="theme-option" data-theme="forest">
+              <div class="theme-preview forest-theme"></div>
+              <span>Forest Green</span>
+            </div>
+            <div class="theme-option" data-theme="sunset">
+              <div class="theme-preview sunset-theme"></div>
+              <span>Sunset Orange</span>
+            </div>
+            <div class="theme-option" data-theme="space">
+              <div class="theme-preview space-theme"></div>
+              <span>Space Purple</span>
+            </div>
+            <div class="theme-option" data-theme="candy">
+              <div class="theme-preview candy-theme"></div>
+              <span>Candy Pink</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Basket Selection -->
+        <div class="option-section">
+          <h3>🧺 Choose Your Basket</h3>
+          <div class="basket-grid">
+            <div class="basket-option active" data-basket="classic">
+              <div class="basket-preview classic-basket"></div>
+              <span>Classic</span>
+            </div>
+            <div class="basket-option" data-basket="modern">
+              <div class="basket-preview modern-basket"></div>
+              <span>Modern</span>
+            </div>
+            <div class="basket-option" data-basket="rustic">
+              <div class="basket-preview rustic-basket"></div>
+              <span>Rustic</span>
+            </div>
+            <div class="basket-option" data-basket="futuristic">
+              <div class="basket-preview futuristic-basket"></div>
+              <span>Futuristic</span>
+            </div>
+            <div class="basket-option" data-basket="magical">
+              <div class="basket-preview magical-basket"></div>
+              <span>Magical</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="options-actions">
+          <button id="backToIntroBtn" class="button secondary">← Back</button>
+          <button id="startGameBtn" class="button primary">PLAY NOW!</button>
+        </div>
+      </div>
     </div>
 
     <div id="gameInterface">
