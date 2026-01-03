@@ -3047,6 +3047,12 @@ function levelUp() {
       nextLevelBtn.style.backgroundColor = "rgba(46, 204, 113, 0.9)";
       nextLevelBtn.style.transform = "scale(1)";
     });
+    
+    // Add click event handler for continue button
+    nextLevelBtn.onclick = () => {
+      playSound("button");
+      continueToNextLevel();
+    };
   }
   
   // Reset progress bar
