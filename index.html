@@ -4,112 +4,163 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FETCH or CATCH!</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700;800&family=Fredoka+One:wght@400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <!-- Enhanced Intro Page -->
+    <!-- Modern Intro Page -->
     <div id="intro">
-      <div class="title-3d">FETCH or CATCH!</div>
-      
-      <!-- Enhanced 3D elements -->
-      <div class="floating-magnet">🧲</div>
-      <div class="floating-star left">⭐</div>
-      <div class="floating-star right">⭐</div>
-      
-      <div class="spinner-container">
-        <div class="spinner">
-          <div class="spinner-item">🍎</div>
-          <div class="spinner-item">🍊</div>
-          <div class="spinner-item">🍌</div>
-          <div class="spinner-item">💎</div>
-          <div class="spinner-item">🧲</div>
-          <div class="spinner-item">💥</div>
-          <div class="spinner-item">❄️</div>
-          <div class="spinner-item">🔍</div>
+      <div class="game-logo">
+        <div class="logo-container">
+          <div class="logo-badge">
+            <div class="badge-icon">🎯</div>
+            <div class="badge-sparkle">✨</div>
+          </div>
+          <div class="logo-text">
+            <div class="title-wrapper">
+              <h1 class="title-main gradient-text">FETCH</h1>
+              <div class="title-connector">
+                <span class="connector-line"></span>
+                <span class="connector-text">or</span>
+                <span class="connector-line"></span>
+              </div>
+              <h1 class="title-main gradient-text">CATCH</h1>
+            </div>
+            <div class="logo-subtitle">The Ultimate Catching Game</div>
+          </div>
         </div>
       </div>
       
-      <div id="simple-instructions">
-        <p class="fun-text">Catch the GOOD stuff!</p>
-        <p class="fun-text">Avoid the BAD stuff!</p>
-        <p class="fun-text">Get AWESOME powers!</p>
-        <p class="control-hint" id="desktop-control-hint">Use ← → keys to move</p>
-        <p class="control-hint" id="mobile-control-hint">Tap ◀ ▶ to move</p>
+      <div class="intro-card">
+        <div class="card-header">
+          <div class="game-preview">
+            <div class="preview-basket">🧺</div>
+            <div class="falling-items">
+              <span class="item good">�</span>
+              <span class="item good">💎</span>
+              <span class="item bad">💣</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="card-content">
+          <div class="game-description">
+            <div class="rule-item good">
+              <span class="rule-icon">✨</span>
+              <span class="rule-text">Catch the good items</span>
+            </div>
+            <div class="rule-item bad">
+              <span class="rule-icon">⚡</span>
+              <span class="rule-text">Avoid the bad ones</span>
+            </div>
+            <div class="rule-item power">
+              <span class="rule-icon">🚀</span>
+              <span class="rule-text">Unlock awesome powers</span>
+            </div>
+          </div>
+          
+          <div class="controls-hint">
+            <span class="controls-desktop">Use ← → arrow keys</span>
+            <span class="controls-mobile">Tap left/right buttons</span>
+          </div>
+        </div>
+        
+        <div class="card-footer">
+          <button id="enterOptionsBtn" class="btn-primary" onclick="showOptionsPage()">
+            <span class="btn-text">Start Playing</span>
+            <span class="btn-icon">🎮</span>
+          </button>
+        </div>
       </div>
       
-      <button id="enterOptionsBtn" class="button wobble" onclick="showOptionsPage()">START ADVENTURE!</button>
-      
-      <!-- 3D effects -->
-      <div class="floating-bomb">💣</div>
-      <div class="corner-decor top-left">🎮</div>
-      <div class="corner-decor top-right">🍦</div>
-      <div class="corner-decor bottom-left">🚀</div>
-      <div class="corner-decor bottom-right">🎯</div>
+      <!-- Floating decorative elements -->
+      <div class="floating-decor">
+        <div class="decor-item decor-1">⭐</div>
+        <div class="decor-item decor-2">�</div>
+        <div class="decor-item decor-3">✨</div>
+        <div class="decor-item decor-4">💫</div>
+      </div>
     </div>
 
-    <!-- New Options Page -->
+    <!-- Modern Options Page -->
     <div id="optionsPage" class="hidden">
       <div class="options-container">
-        <h2 class="options-title">🎨 CUSTOMIZE YOUR GAME</h2>
+        <div class="options-header">
+          <h2 class="options-title">Customize Your Game</h2>
+          <p class="options-subtitle">Choose your style and start playing!</p>
+        </div>
         
         <!-- Theme Selection -->
         <div class="option-section">
-          <h3>🌍 Choose Your Theme</h3>
+          <div class="section-header">
+            <h3 class="section-title">� Theme</h3>
+            <p class="section-desc">Pick your favorite visual style</p>
+          </div>
           <div class="theme-grid">
             <div class="theme-option active" data-theme="ocean">
               <div class="theme-preview ocean-theme"></div>
-              <span>Ocean Blue</span>
+              <span class="theme-name">Ocean</span>
             </div>
             <div class="theme-option" data-theme="forest">
               <div class="theme-preview forest-theme"></div>
-              <span>Forest Green</span>
+              <span class="theme-name">Forest</span>
             </div>
             <div class="theme-option" data-theme="sunset">
               <div class="theme-preview sunset-theme"></div>
-              <span>Sunset Orange</span>
+              <span class="theme-name">Sunset</span>
             </div>
             <div class="theme-option" data-theme="space">
               <div class="theme-preview space-theme"></div>
-              <span>Space Purple</span>
+              <span class="theme-name">Space</span>
             </div>
             <div class="theme-option" data-theme="candy">
               <div class="theme-preview candy-theme"></div>
-              <span>Candy Pink</span>
+              <span class="theme-name">Candy</span>
             </div>
           </div>
         </div>
 
         <!-- Basket Selection -->
         <div class="option-section">
-          <h3>🧺 Choose Your Basket</h3>
+          <div class="section-header">
+            <h3 class="section-title">🧺 Basket Style</h3>
+            <p class="section-desc">Choose your catching basket</p>
+          </div>
           <div class="basket-grid">
             <div class="basket-option active" data-basket="classic">
               <div class="basket-preview classic-basket"></div>
-              <span>Classic</span>
+              <span class="basket-name">Classic</span>
             </div>
             <div class="basket-option" data-basket="modern">
               <div class="basket-preview modern-basket"></div>
-              <span>Modern</span>
+              <span class="basket-name">Modern</span>
             </div>
             <div class="basket-option" data-basket="rustic">
               <div class="basket-preview rustic-basket"></div>
-              <span>Rustic</span>
+              <span class="basket-name">Rustic</span>
             </div>
             <div class="basket-option" data-basket="futuristic">
               <div class="basket-preview futuristic-basket"></div>
-              <span>Futuristic</span>
+              <span class="basket-name">Future</span>
             </div>
             <div class="basket-option" data-basket="magical">
               <div class="basket-preview magical-basket"></div>
-              <span>Magical</span>
+              <span class="basket-name">Magic</span>
             </div>
           </div>
         </div>
 
         <!-- Action Buttons -->
         <div class="options-actions">
-          <button id="backToIntroBtn" class="button secondary">← Back</button>
-          <button id="startGameBtn" class="button primary">PLAY NOW!</button>
+          <button id="backToIntroBtn" class="btn-secondary">
+            <span class="btn-text">← Back</span>
+          </button>
+          <button id="startGameBtn" class="btn-primary">
+            <span class="btn-text">Play Now</span>
+            <span class="btn-icon">🚀</span>
+          </button>
         </div>
       </div>
     </div>
